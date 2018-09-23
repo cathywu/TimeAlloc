@@ -24,8 +24,8 @@ class CalendarSolver:
         self.model.timeslots = RangeSet(1, self.num_timeslots)
 
         self.model.utilities = Param(self.model.timeslots * self.model.tasks,
-                                   initialize=fill_from_array(utilities),
-                                   default=1)
+                                     initialize=fill_from_array(utilities),
+                                     default=1)
         self._optimized = False
 
         # useful iterators
@@ -73,7 +73,7 @@ class CalendarSolver:
             return 0, sum(model.A[i, j] for j in model.tasks), 1
 
         self.model.constrain_nonoverlapping = Constraint(self.model.timeslots,
-                                                    rule=rule)
+                                                         rule=rule)
 
     def _constraints_task_duration(self):
         """
@@ -85,7 +85,7 @@ class CalendarSolver:
             return 0, sum(model.A[i, j] for i in model.timeslots), None
 
         self.model.constrain_task_duration = Constraint(self.model.tasks,
-                                                         rule=rule)
+                                                        rule=rule)
 
     def _construct_ip(self):
         """
