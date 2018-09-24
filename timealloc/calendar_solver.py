@@ -2,11 +2,12 @@ import numpy as np
 
 import pyomo.environ as pe
 from pyomo.opt import SolverFactory
-from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, \
-    Param, Constraint, summation, Expression
+from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, Param, \
+    Constraint, summation, Expression
 
 from timealloc.util import fill_from_array, fill_from_2d_array
 import timealloc.util as util
+
 
 class CalendarSolver:
     """
@@ -69,11 +70,12 @@ class CalendarSolver:
         """
         Reward task-specific amounts of task switching
         """
+
         def obj_expression(model):
             total = 0
-            for j in range(1, self.num_tasks+1):
+            for j in range(1, self.num_tasks + 1):
                 for i in range(1, self.num_timeslots):
-                    total += abs(model.A[i, j] - model.A[i+1, j])
+                    total += abs(model.A[i, j] - model.A[i + 1, j])
             return total
 
         # TODO objective with multiple parts
@@ -81,13 +83,11 @@ class CalendarSolver:
 
     def _objective_cost(self):
         """ Objective function to minimize """
+
         def obj_expression(model):
-            return -(summation(model.utilities, model.A))
-            # TODO(cathywu) this objective may slow things down, not solvable
-            # via glpk
-            # return -(summation(model.utilities, model.A) + 6 * pe.summation(
-            #     model.C6) + 4 * pe.summation(model.C4) + 3 * pe.summation(
-            #     model.C3) + pe.summation(model.C2))
+            return -(summation(model.utilities, model.A) + summation(
+                model.CTu) + summation(model.CTl))
+            # return -(summation(model.utilities, model.A))
 
         # self.model.exp_cost = Expression(rule=obj_expression)
         # self.model.obj_cost = Objective(rule=self.model.exp_cost)
@@ -109,6 +109,7 @@ class CalendarSolver:
         Perhaps a future version can account for light-weight multi-tasking,
         like commuting + reading.
         """
+
         def rule(model, i):
             return 0, sum(model.A[i, j] for j in model.tasks), 1
 
@@ -119,12 +120,59 @@ class CalendarSolver:
         """
         Each task should stay within task-specific allocation bounds
         """
+
         def rule(model, j):
             task_j_total = sum(model.A[i, j] for i in model.timeslots)
             return 0, task_j_total, model.task_duration[j]
 
         self.model.constrain_task_duration = Constraint(self.model.tasks,
                                                         rule=rule)
+
+    def _constraints_task_contiguity(self):
+        """
+        Encourage the chunks of a tasks to be scheduled close to one another,
+        i.e. reward shorter "elapsed" times
+        """
+        slack = 2
+
+        triu = np.triu(np.ones(self.num_timeslots))
+        tril = np.tril(np.ones(self.num_timeslots))
+
+        self.model.cTu = Param(self.model.timeslots * self.model.timeslots,
+                               initialize=fill_from_2d_array(triu))
+        self.model.cTl = Param(self.model.timeslots * self.model.timeslots,
+                               initialize=fill_from_2d_array(tril))
+        self.model.CTu = Var(self.model.timeslots * self.model.tasks,
+                             domain=pe.Integers)
+        self.model.CTl = Var(self.model.timeslots * self.model.tasks,
+                             domain=pe.Integers)
+
+        def rule(model, i, j):
+            """
+            This rule is used to encourage early completion (in terms of
+            allocation) of a task.
+            """
+            total = sum(
+                model.cTu[i, k] * model.A[k, j] for k in model.timeslots) / (
+                        self.num_timeslots - i + 1)
+            return -1 + 1e-2, model.CTu[i, j] - total, 1e-2 + slack
+
+        self.model.constrain_contiguity_u = Constraint(self.model.timeslots,
+                                                       self.model.tasks,
+                                                       rule=rule)
+
+        def rule(model, i, j):
+            """
+            This rule is used to encourage late start (in terms of
+            allocation) of a task.
+            """
+            total = sum(
+                model.cTl[i, k] * model.A[k, j] for k in model.timeslots) / i
+            return -1 + 1e-2, model.CTl[i, j] - total, 1e-2 + slack
+
+        self.model.constrain_contiguity_l = Constraint(self.model.timeslots,
+                                                       self.model.tasks,
+                                                       rule=rule)
 
     def _constraints_chunking(self):
         """
@@ -286,7 +334,8 @@ class CalendarSolver:
         self._constraints_switching_bounds()
         self._constraints_chunking()
         self._constraints_chunking2()
-        self._constraints_chunking_max()
+        self._constraints_task_contiguity()
+        # self._constraints_chunking_max()  # FIXME(cathywu) dramatic slowdown
         # objective
         self._objective_cost()
         # self._objective_switching()
