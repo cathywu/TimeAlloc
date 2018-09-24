@@ -6,6 +6,7 @@ from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, \
     Param, Constraint, summation, Expression
 
 from timealloc.util import fill_from_array, fill_from_2d_array
+import timealloc.util as util
 
 class CalendarSolver:
     """
@@ -50,7 +51,11 @@ class CalendarSolver:
         self._construct_ip()
 
         # Create a solver
-        self.opt = SolverFactory('glpk')
+        # self.opt = SolverFactory('glpk')
+        # self.opt.options['tmlim'] = 1000
+        # self.opt = SolverFactory('ipopt')
+        # self.opt.options['max_iter'] = 10000
+        self.opt = SolverFactory('cbc')
 
     def _variables(self):
         # allocation A
@@ -78,7 +83,11 @@ class CalendarSolver:
     def _objective_cost(self):
         """ Objective function to minimize """
         def obj_expression(model):
-            return -summation(model.utilities, model.A)
+            # return -(summation(model.utilities, model.A))
+            # TODO(cathywu) this objective may slow things down, not solvable
+            #  via glpk
+            return -(summation(model.utilities, model.A) + pe.summation(
+                model.C3))
 
         # self.model.exp_cost = Expression(rule=obj_expression)
         # self.model.obj_cost = Objective(rule=self.model.exp_cost)
@@ -116,6 +125,49 @@ class CalendarSolver:
 
         self.model.constrain_task_duration = Constraint(self.model.tasks,
                                                         rule=rule)
+
+    def _constraints_chunking(self):
+        chunk3 = np.array([0, 0, 1, 1, 1, 0, 0])
+        # chunk4 = np.array([1, 1, 1, 1])
+
+        offset = 2
+        c3len = self.num_timeslots - chunk3.size + 1 + offset * 2
+        self.model.c3timeslots = RangeSet(1, c3len)
+        L0, b0 = util.linop_from_1d_filter(chunk3, self.num_timeslots,
+                                           offset=offset)
+        L1, b1 = util.linop_from_1d_filter(1-chunk3, self.num_timeslots,
+                                            offset=offset)
+        self.model.cL0 = Param(self.model.c3timeslots * self.model.timeslots,
+                                   initialize=fill_from_2d_array(L0))
+        self.model.cL1 = Param(self.model.c3timeslots * self.model.timeslots,
+                               initialize=fill_from_2d_array(L1))
+
+        self.model.C3 = Var(self.model.c3timeslots * self.model.tasks,
+                             domain=pe.Integers)
+
+        def rule(model, i, j):
+            total0 = sum(
+                model.cL0[i, k] * model.A[k, j] for k in model.timeslots) + \
+                     b0[i-1]
+            total1 = sum(
+                model.cL1[i, k] * (1-model.A[k, j]) for k in model.timeslots)
+            total = total0 + total1
+            return - 1 + 1e-2, model.C3[i, j] - total / chunk3.size, 1e-2
+            # return - 1, model.C3[i, j] - total / chunk3.size, 0
+
+        self.model.constrain_chunking1 = Constraint(self.model.c3timeslots,
+            self.model.tasks, rule=rule)
+
+        # TODO(cathywu) the following is faster to solve than including
+        # chunking in the objective
+        # def rule(model, j):
+        #     task_j_total = sum(model.C3[i, j] for i in model.c3timeslots)
+        #     return 2, task_j_total, None
+        #     # return model.task_chunk_min[j], task_j_total, \
+        #     #        model.task_chunk_max[j]
+
+        # self.model.constrain_chunking2 = Constraint(self.model.tasks,
+        #                                                 rule=rule)
 
     def _constraints_switching_bounds(self):
         """
@@ -163,15 +215,16 @@ class CalendarSolver:
         self.integer_program = "blah"
         # variables
         self._variables()
-        # objective
-        self._objective_cost()
-        # self._objective_switching()
         # constraints
         self._constraints_external()
         self._constraints_other()
         self._constraints_nonoverlapping_tasks()
         self._constraints_task_duration()
         self._constraints_switching_bounds()
+        self._constraints_chunking()
+        # objective
+        self._objective_cost()
+        # self._objective_switching()
 
     def optimize(self):
         # Create a model instance and optimize
