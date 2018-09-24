@@ -29,8 +29,11 @@ def fill_from_array(array):
     return fn
 
 
-def linop_from_1d_filter(filter, n, offset=0):
-    L = np.zeros((n - filter.size + 1 + offset * 2, n))
+def linop_from_1d_filter(filter, n, offset=0, offset_end=None):
+    if offset_end is not None:
+        L = np.zeros((n - filter.size + 1 + offset + offset_end, n))
+    else:
+        L = np.zeros((n - filter.size + 1 + offset * 2, n))
     i, j = np.indices(L.shape)
     for k in range(filter.size):
         L[i == j - k + offset] = filter[k]
