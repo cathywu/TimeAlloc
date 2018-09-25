@@ -99,6 +99,7 @@ params = {
     'task_valid': overall_mask,
     'task_chunk_min': task_chunk_min,
     'task_chunk_max': task_chunk_max,
+    'task_names': list(tasks.tasks.keys()),
 }
 cal = CalendarSolver(utilities, params)
 
@@ -117,3 +118,5 @@ print(array)
 print('Solve time', solve_time)
 for i, task in enumerate(tasks.tasks.keys()):
     print(i, task)
+
+cal.visualize()

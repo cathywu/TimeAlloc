@@ -2,13 +2,17 @@ import operator
 
 import numpy as np
 
+from bokeh.palettes import d3
+from bokeh.plotting import figure, output_file, show
+from bokeh.models import ColumnDataSource, Range1d, LabelSet, Range1d
 import pyomo.environ as pe
-from pyomo.opt import SolverFactory
 from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, Param, \
     Constraint, summation, Expression
+from pyomo.opt import SolverFactory
 
 from timealloc.util import fill_from_array, fill_from_2d_array
 import timealloc.util as util
+import timealloc.util_time as tutil
 
 
 class CalendarSolver:
@@ -19,6 +23,7 @@ class CalendarSolver:
 
     def __init__(self, utilities, params):
         self.model = AbstractModel()
+        self._optimized = False
 
         self.slack_cont = 5
 
@@ -28,15 +33,25 @@ class CalendarSolver:
         #                            default=10)
         self.num_tasks = params['num_tasks']
         self.num_timeslots = params['num_timeslots']
+        self.valid = params['task_valid']
+        if 'task_names' in params:
+            self.task_names = params['task_names']
+        else:
+            self.task_names = ["" for i in range(self.num_tasks)]
+        self.task_duration = params['task_duration']
+        self.task_chunk_min = params['task_chunk_min']
+        self.task_chunk_max = params['task_chunk_max']
+        self.valid = params['task_valid']
+
+        # Index sets for iteration
         self.model.tasks = RangeSet(0, self.num_tasks - 1)
         self.model.timeslots = RangeSet(0, self.num_timeslots - 1)
         self.model.dtimeslots = RangeSet(0, self.num_timeslots - 2)
 
+        # TODO(cathywu) The following may not be needed
+        # Fill pyomo Params from user params
         self.model.utilities = Param(self.model.timeslots * self.model.tasks,
                                      initialize=fill_from_2d_array(utilities))
-
-        self.valid = params['task_valid']
-
         self.model.task_duration = Param(self.model.tasks,
                                          initialize=fill_from_array(
                                              params['task_duration']))
@@ -46,9 +61,6 @@ class CalendarSolver:
         self.model.task_chunk_max = Param(self.model.tasks,
                                           initialize=fill_from_array(
                                               params['task_chunk_max']))
-        self._optimized = False
-
-        # useful iterators
 
         # construct IP
         self._construct_ip()
@@ -701,3 +713,85 @@ class CalendarSolver:
 
     def display(self):
         self.instance.display()
+
+    def visualize(self):
+        """
+        Visualization of calendar tasks, with hover for more details
+        :return:
+        """
+        COLORS = d3['Category20'][20]
+
+        array = np.reshape(
+            [y for (x, y) in self.instance.A.get_values().items()],
+            (self.num_timeslots, self.num_tasks))
+
+        x, y = array.nonzero()
+        top = (x % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
+        bottom = top - (0.95 / tutil.SLOTS_PER_HOUR)
+        left = np.floor(x / (24 * tutil.SLOTS_PER_HOUR))
+        right = left + 0.95
+        chunk_min = [self.task_chunk_min[k] for k in y]
+        chunk_max = [self.task_chunk_max[k] for k in y]
+        duration = [self.task_duration[k] for k in y]
+        task = [self.task_names[k] for k in y]
+
+        colors = [COLORS[i] for i in y]
+        source = ColumnDataSource(data=dict(
+            top=top,
+            bottom=bottom,
+            left=left,
+            right=right,
+            chunk_min=chunk_min,
+            chunk_max=chunk_max,
+            duration=duration,
+            task_id=y,
+            task=task,
+            colors=colors,
+        ))
+
+        TOOLTIPS = [
+            ("task", "@task"),
+            ("desc", "@task_id"),
+            # ("(x,y)", "($x, $y)"),
+            ("duration", "@duration"),
+            ("chunk_range", "(@chunk_min, @chunk_max)"),
+            ("(t,l)", "(@top, @left)"),
+            # ("fill color", "$color[hex, swatch]:fill_color"),
+            ("index", "$index"),
+        ]
+
+        # [Bokeh] inverted axis range example:
+        # https://groups.google.com/a/continuum.io/forum/#!topic/bokeh/CJAvppgQmKo
+        yr = Range1d(start=24.5, end=-0.5)
+        xr = Range1d(start=-0.5, end=7.5)
+        p = figure(plot_width=800, plot_height=800, y_range=yr, x_range=xr,
+                   tooltips=TOOLTIPS, title="Calendar")
+        output_file("calendar.html")
+        p.xaxis[0].axis_label = 'Weekday (Sun-Fri)'
+        p.yaxis[0].axis_label = 'Hour (12AM-12AM)'
+
+        p.quad(top='top', bottom='bottom', left='left', right='right',
+               color='colors', source=source)
+
+        task_display = []
+        curr_task = ""
+        for name in task:
+            if name == curr_task:
+                task_display.append("")
+            else:
+                curr_task = name
+                task_display.append(name)
+        source2 = ColumnDataSource(
+            data=dict(x=left, y=top, task=[k[:18] for k in task_display],
+                # abbreviated version of task))
+
+        # annotate rectangles with task name
+        # [Bokeh] Text properties:
+        # https://bokeh.pydata.org/en/latest/docs/user_guide/styling.html#text-properties
+        labels = LabelSet(x='x', y='y', text='task', level='glyph', x_offset=3,
+                          y_offset=-3, source=source2, text_font_size='7pt',
+                          render_mode='canvas')
+
+        p.add_layout(labels)
+
+        show(p)
