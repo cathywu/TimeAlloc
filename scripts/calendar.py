@@ -1,3 +1,6 @@
+"""
+Script for basic CalendarSolver functionality.
+"""
 import time
 
 import numpy as np

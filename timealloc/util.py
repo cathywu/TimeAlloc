@@ -68,3 +68,18 @@ def linop_from_1d_filter(filter, n, offset=0, offset_end=None):
         bias[k] = offset - k
         bias[-k - 1] = offset - k
     return L, bias
+
+
+def html_from_md(fname):
+    """
+    Reads in a file as markdown, converts it to html, and then returns the
+    html soup
+    :param fname: Markdown filename
+    :return:
+    """
+    from bs4 import BeautifulSoup
+    import mistune
+    inp = open(fname).read()
+    html = mistune.markdown(inp)
+    soup = BeautifulSoup(html, features="html.parser")
+    return soup
