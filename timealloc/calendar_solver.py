@@ -20,7 +20,7 @@ class CalendarSolver:
     def __init__(self, utilities, params):
         self.model = AbstractModel()
 
-        self.slack_cont = 2
+        self.slack_cont = 5
 
         # read parameters
         # self.num_tasks = Param(initialize=params['num_tasks'], default=5)
@@ -34,6 +34,8 @@ class CalendarSolver:
 
         self.model.utilities = Param(self.model.timeslots * self.model.tasks,
                                      initialize=fill_from_2d_array(utilities))
+
+        self.valid = params['task_valid']
 
         self.model.task_duration = Param(self.model.tasks,
                                          initialize=fill_from_array(
@@ -92,10 +94,10 @@ class CalendarSolver:
         """ Objective function to minimize """
 
         def obj_expression(model):
-            return -(summation(model.utilities, model.A) + summation(
-                model.CTu) / self.slack_cont + summation(
-                model.CTl) / self.slack_cont)
-            # return -(summation(model.utilities, model.A))
+            # return -(summation(model.utilities, model.A) + summation(
+            #     model.CTu) / self.slack_cont + summation(
+            #     model.CTl) / self.slack_cont)
+            return -(summation(model.utilities, model.A))
 
         # self.model.exp_cost = Expression(rule=obj_expression)
         # self.model.obj_cost = Objective(rule=self.model.exp_cost)
@@ -110,6 +112,17 @@ class CalendarSolver:
     def _constraints_other(self):
         """ Other constraints, user imposed, like keeping Friday night free """
         pass
+
+    def _constraints_task_valid(self):
+        """
+        User-defined time constraints on tasks
+        """
+
+        def rule(model, i, j):
+            return 0, model.A[i, j] * (1-self.valid[i, j]), 0
+
+        self.model.constrain_valid = Constraint(self.model.timeslots,
+                                                self.model.tasks, rule=rule)
 
     def _constraints_nonoverlapping_tasks(self):
         """
@@ -655,10 +668,11 @@ class CalendarSolver:
         # constraints
         self._constraints_external()
         self._constraints_other()
+        self._constraints_task_valid()
         self._constraints_nonoverlapping_tasks()
         self._constraints_task_duration()
         # self._constraints_switching_bounds()
-        self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
+        # self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
 
         self._constraints_chunking1m()
         self._constraints_chunking2m()
