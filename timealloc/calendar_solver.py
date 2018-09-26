@@ -15,8 +15,17 @@ from timealloc.util import fill_from_array, fill_from_2d_array
 import timealloc.util as util
 import timealloc.util_time as tutil
 
+# For avoiding rounding issues
 EPS = 1e-2  # epsilon
-TIMELIMIT = 3600  # 1e3, 2e2
+
+# Time limit for solver (wallclock)
+TIMELIMIT = 50  # 3600, 1e3, 2e2
+
+# granularity (in hours) for contiguity variables (larger --> easier problem)
+CONT_STRIDE = 12
+
+# slack for contiguity variables (larger --> easier problem)
+SLACK = 5
 
 
 class CalendarSolver:
@@ -29,7 +38,7 @@ class CalendarSolver:
         self.model = AbstractModel()
         self._optimized = False
 
-        self.slack_cont = 5
+        self.slack_cont = SLACK
 
         # read parameters
         # self.num_tasks = Param(initialize=params['num_tasks'], default=5)
@@ -234,12 +243,17 @@ class CalendarSolver:
         Encourage the chunks of a tasks to be scheduled close to one another,
         i.e. reward shorter "elapsed" times
         """
-        triu = np.triu(np.ones(self.num_timeslots))
-        tril = np.tril(np.ones(self.num_timeslots))
+        # triu = np.triu(np.ones(self.num_timeslots))
+        # tril = np.tril(np.ones(self.num_timeslots))
+        incr = CONT_STRIDE * tutil.SLOTS_PER_HOUR  # 1 would give original result
+        triu = util.triu(self.num_timeslots, incr=incr)
+        tril = util.tril(self.num_timeslots, incr=incr)
+        cont_slots = self.num_timeslots/incr-1
 
-        self.model.CTu = Var(self.model.timeslots * self.model.tasks,
+        self.model.contslots = RangeSet(0, cont_slots - 1)
+        self.model.CTu = Var(self.model.contslots * self.model.tasks,
                              domain=pe.Integers)
-        self.model.CTl = Var(self.model.timeslots * self.model.tasks,
+        self.model.CTl = Var(self.model.contslots * self.model.tasks,
                              domain=pe.Integers)
         self.model.CTu_total = Var(domain=pe.Reals)
         self.model.CTl_total = Var(domain=pe.Reals)
@@ -255,12 +269,12 @@ class CalendarSolver:
             Maximizing sum_i CTu[i,j] encourages early task completion.
             Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
-            den = self.num_timeslots - i
+            den = sum(triu[i, :])
             ind = model.timeslots
             total = sum(triu[i, k] * (1-model.A[k, j]) for k in ind) / den
             return -1 + EPS, model.CTu[i, j] - total, EPS + self.slack_cont
 
-        self.model.constrain_contiguity_u = Constraint(self.model.timeslots,
+        self.model.constrain_contiguity_u = Constraint(self.model.contslots,
                                                        self.model.tasks,
                                                        rule=rule)
 
@@ -275,17 +289,17 @@ class CalendarSolver:
             Maximizing sum_i CTl[i,j] encourages late starting.
             Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
-            den = i + 1
+            den = sum(tril[i, :])
             ind = model.timeslots
             total = sum(tril[i, k] * (1-model.A[k, j]) for k in ind) / den
             return -1 + EPS, model.CTl[i, j] - total, EPS + self.slack_cont
 
-        self.model.constrain_contiguity_l = Constraint(self.model.timeslots,
+        self.model.constrain_contiguity_l = Constraint(self.model.contslots,
                                                        self.model.tasks,
                                                        rule=rule)
 
         def rule(model):
-            den = self.num_tasks * self.num_timeslots * (self.slack_cont + 1)
+            den = self.num_tasks * cont_slots * (self.slack_cont + 1)
             num = 0.25
             total = summation(model.CTu) / den * num
             return model.CTu_total == total
@@ -293,7 +307,7 @@ class CalendarSolver:
         self.model.constrain_contiguity_ut = Constraint(rule=rule)
 
         def rule(model):
-            den = self.num_tasks * self.num_timeslots * (self.slack_cont + 1)
+            den = self.num_tasks * cont_slots * (self.slack_cont + 1)
             num = 0.25
             total = summation(model.CTl) / den * num
             return model.CTl_total == total
