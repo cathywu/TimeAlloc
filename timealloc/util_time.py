@@ -6,6 +6,7 @@ import time
 
 import numpy as np
 
+# TODO(cathywu) move to config
 SLOTS_PER_HOUR = 2  # each slot represents 15 minutes
 WEEKDAYS = {'SATURDAY': 0, 'SUNDAY': 1, 'MONDAY': 2, 'TUESDAY': 3,
             'WEDNESDAY': 4, 'THURSDAY': 5, 'FRIDAY': 6, }

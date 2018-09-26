@@ -4,7 +4,8 @@ import numpy as np
 
 from bokeh.palettes import d3
 from bokeh.plotting import figure, output_file, show
-from bokeh.models import ColumnDataSource, Range1d, LabelSet, Range1d
+from bokeh.models import ColumnDataSource, SingleIntervalTicker, LinearAxis, \
+    LabelSet, Range1d
 import pyomo.environ as pe
 from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, Param, \
     Constraint, summation, Expression
@@ -13,6 +14,9 @@ from pyomo.opt import SolverFactory
 from timealloc.util import fill_from_array, fill_from_2d_array
 import timealloc.util as util
 import timealloc.util_time as tutil
+
+EPS = 1e-2  # epsilon
+TIMELIMIT = 3600  # 1e3, 2e2
 
 
 class CalendarSolver:
@@ -37,7 +41,7 @@ class CalendarSolver:
         if 'task_names' in params:
             self.task_names = params['task_names']
         else:
-            self.task_names = ["" for i in range(self.num_tasks)]
+            self.task_names = ["" for _ in range(self.num_tasks)]
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
         self.task_chunk_max = params['task_chunk_max']
@@ -48,29 +52,19 @@ class CalendarSolver:
         self.model.timeslots = RangeSet(0, self.num_timeslots - 1)
         self.model.dtimeslots = RangeSet(0, self.num_timeslots - 2)
 
-        # TODO(cathywu) The following may not be needed
         # Fill pyomo Params from user params
-        self.model.utilities = Param(self.model.timeslots * self.model.tasks,
-                                     initialize=fill_from_2d_array(utilities))
-        self.model.task_duration = Param(self.model.tasks,
-                                         initialize=fill_from_array(
-                                             params['task_duration']))
-        self.model.task_chunk_min = Param(self.model.tasks,
-                                          initialize=fill_from_array(
-                                              params['task_chunk_min']))
-        self.model.task_chunk_max = Param(self.model.tasks,
-                                          initialize=fill_from_array(
-                                              params['task_chunk_max']))
+        self.utilities = utilities
 
         # construct IP
         self._construct_ip()
 
         # Create a solver
         # self.opt = SolverFactory('glpk')
-        # self.opt.options['tmlim'] = 1000
         # self.opt = SolverFactory('ipopt')
-        # self.opt.options['max_iter'] = 10000
         self.opt = SolverFactory('cbc')
+        # self.opt.options['tmlim'] = 1000  # glpk
+        # self.opt.options['max_iter'] = 10000  # ipopt
+        # self.opt.options['timelimit'] = 5
 
     def _variables(self):
         """
@@ -82,6 +76,7 @@ class CalendarSolver:
         # allocation A
         self.model.A = Var(self.model.timeslots * self.model.tasks,
                            domain=pe.Boolean)
+        self.model.A_total = Var(domain=pe.Reals)
         # delta D
         # TODO(cathywu) consider whether this / switching constraints are needed
         self.model.D = Var(self.model.dtimeslots * self.model.tasks,
@@ -106,10 +101,13 @@ class CalendarSolver:
         """ Objective function to minimize """
 
         def obj_expression(model):
-            # return -(summation(model.utilities, model.A) + summation(
+            return -(model.A_total + model.CTu_total + model.CTl_total)
+            # return -(model.A_total)
+            # model.A_total + model.CTu / self.slack_cont + model.CTl /
+            # self.slack_cont)
+            # return -(summation(self.utilities, model.A) + summation(
             #     model.CTu) / self.slack_cont + summation(
             #     model.CTl) / self.slack_cont)
-            return -(summation(model.utilities, model.A))
 
         # self.model.exp_cost = Expression(rule=obj_expression)
         # self.model.obj_cost = Objective(rule=self.model.exp_cost)
@@ -156,10 +154,80 @@ class CalendarSolver:
 
         def rule(model, j):
             task_j_total = sum(model.A[i, j] for i in model.timeslots)
-            return 0, task_j_total, model.task_duration[j]
+            return 0, task_j_total, self.task_duration[j]
 
         self.model.constrain_task_duration = Constraint(self.model.tasks,
                                                         rule=rule)
+
+    def _constraints_utility(self):
+        """
+        Each task should stay within task-specific allocation bounds
+        """
+
+        def rule(model):
+            total = summation(self.utilities, model.A)
+            return model.A_total == total
+
+        self.model.constrain_A_total = Constraint(rule=rule)
+
+    def _constraints_task_contiguity_linear(self):
+        """
+        Encourage the chunks of a tasks to be scheduled close to one another,
+        i.e. reward shorter "elapsed" times
+        """
+        triu = np.triu(np.ones(self.num_timeslots))
+        tril = np.tril(np.ones(self.num_timeslots))
+
+        self.model.CTu = Var(domain=pe.Integers)
+        self.model.CTl = Var(domain=pe.Integers)
+
+        def rule(model):
+            """
+            This rule is used to encourage early completion (in terms of
+            allocation) of a task.
+
+            More precisely:
+            CTu[i,j] = whether task j is UNASSIGNED between slot i and the end
+
+            Maximizing sum_i CTu[i,j] encourages early task completion.
+            Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
+            """
+            total = 0
+            ind = model.timeslots
+            for i in model.timeslots:
+                for j in model.tasks:
+                    den = self.num_timeslots - i
+                    total += sum(triu[i, k] * (1-model.A[k, j]) for k in
+                                 ind) / den
+            # total = sum(model.cTu[i, k] * (1-model.A[k, j]) for k in ind) /
+            #  den
+            return -1 + EPS, model.CTu - total, EPS + self.slack_cont
+
+        self.model.constrain_contiguity_u = Constraint(rule=rule)
+
+        def rule(model):
+            """
+            This rule is used to encourage late start (in terms of
+            allocation) of a task.
+
+            More precisely:
+            CTl[i,j] = whether task j is UNASSIGNED between slot 0 and slot i
+
+            Maximizing sum_i CTl[i,j] encourages late starting.
+            Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
+            """
+            total = 0
+            ind = model.timeslots
+            for i in model.timeslots:
+                for j in model.tasks:
+                    den = i + 1
+                    total = sum(tril[i, k] * (1-model.A[k, j]) for k in
+                                ind) / den
+            # total = sum(model.cTl[i, k] * (1-model.A[k, j]) for k in ind) /
+            #  den
+            return -1 + EPS, model.CTl - total, EPS + self.slack_cont
+
+        self.model.constrain_contiguity_l = Constraint(rule=rule)
 
     def _constraints_task_contiguity(self):
         """
@@ -169,24 +237,28 @@ class CalendarSolver:
         triu = np.triu(np.ones(self.num_timeslots))
         tril = np.tril(np.ones(self.num_timeslots))
 
-        self.model.cTu = Param(self.model.timeslots * self.model.timeslots,
-                               initialize=fill_from_2d_array(triu))
-        self.model.cTl = Param(self.model.timeslots * self.model.timeslots,
-                               initialize=fill_from_2d_array(tril))
         self.model.CTu = Var(self.model.timeslots * self.model.tasks,
                              domain=pe.Integers)
         self.model.CTl = Var(self.model.timeslots * self.model.tasks,
                              domain=pe.Integers)
+        self.model.CTu_total = Var(domain=pe.Reals)
+        self.model.CTl_total = Var(domain=pe.Reals)
 
         def rule(model, i, j):
             """
             This rule is used to encourage early completion (in terms of
             allocation) of a task.
+
+            More precisely:
+            CTu[i,j] = whether task j is UNASSIGNED between slot i and the end
+
+            Maximizing sum_i CTu[i,j] encourages early task completion.
+            Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
             den = self.num_timeslots - i
             ind = model.timeslots
-            total = sum(model.cTu[i, k] * model.A[k, j] for k in ind) / den
-            return -1 + 1e-2, model.CTu[i, j] - total, 1e-2 + self.slack_cont
+            total = sum(triu[i, k] * (1-model.A[k, j]) for k in ind) / den
+            return -1 + EPS, model.CTu[i, j] - total, EPS + self.slack_cont
 
         self.model.constrain_contiguity_u = Constraint(self.model.timeslots,
                                                        self.model.tasks,
@@ -196,15 +268,37 @@ class CalendarSolver:
             """
             This rule is used to encourage late start (in terms of
             allocation) of a task.
+
+            More precisely:
+            CTl[i,j] = whether task j is UNASSIGNED between slot 0 and slot i
+
+            Maximizing sum_i CTl[i,j] encourages late starting.
+            Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
             den = i + 1
             ind = model.timeslots
-            total = sum(model.cTl[i, k] * model.A[k, j] for k in ind) / den
-            return -1 + 1e-2, model.CTl[i, j] - total, 1e-2 + self.slack_cont
+            total = sum(tril[i, k] * (1-model.A[k, j]) for k in ind) / den
+            return -1 + EPS, model.CTl[i, j] - total, EPS + self.slack_cont
 
         self.model.constrain_contiguity_l = Constraint(self.model.timeslots,
                                                        self.model.tasks,
                                                        rule=rule)
+
+        def rule(model):
+            den = self.num_tasks * self.num_timeslots * (self.slack_cont + 1)
+            num = 0.25
+            total = summation(model.CTu) / den * num
+            return model.CTu_total == total
+
+        self.model.constrain_contiguity_ut = Constraint(rule=rule)
+
+        def rule(model):
+            den = self.num_tasks * self.num_timeslots * (self.slack_cont + 1)
+            num = 0.25
+            total = summation(model.CTl) / den * num
+            return model.CTl_total == total
+
+        self.model.constrain_contiguity_lt = Constraint(rule=rule)
 
     def _constraints_chunking1(self):
         """
@@ -230,7 +324,7 @@ class CalendarSolver:
             C[i, j]==1 means that the pattern is matched, anything less is okay
             """
             C = operator.attrgetter(var_name)(model)[i, j]
-            if model.task_chunk_min[j] <= chunk_len:
+            if self.task_chunk_min[j] <= chunk_len:
                 return Constraint.Feasible
             return None, C, chunk_len - 1
 
@@ -239,7 +333,7 @@ class CalendarSolver:
 
         def rule(model, i, j):
             C = operator.attrgetter(var_name)(model)[i, j]
-            if model.task_chunk_min[j] <= chunk_len:
+            if self.task_chunk_min[j] <= chunk_len:
                 return Constraint.Feasible
             total = sum(L[i, k] * model.A[k, j] for k in model.timeslots)
             return 0, C - total, None
@@ -271,7 +365,7 @@ class CalendarSolver:
             C[i, j]==2 means that the pattern is matched, anything less is okay
             """
             C = operator.attrgetter(var_name)(model)[i, j]
-            if model.task_chunk_min[j] <= chunk_len:
+            if self.task_chunk_min[j] <= chunk_len:
                 return Constraint.Feasible
             return None, C, chunk_len - 1
 
@@ -280,7 +374,7 @@ class CalendarSolver:
 
         def rule(model, i, j):
             C = operator.attrgetter(var_name)(model)[i, j]
-            if model.task_chunk_min[j] <= chunk_len:
+            if self.task_chunk_min[j] <= chunk_len:
                 return Constraint.Feasible
             total = sum(L[i, k] * model.A[k, j] for k in model.timeslots)
             return 0, C - total, None
@@ -308,8 +402,7 @@ class CalendarSolver:
         c_len = self.num_timeslots - filter.size + 1 + offset * 2
         return filter, L, c_len
 
-    @staticmethod
-    def _get_rule_chunk_upper(mode, var_name, chunk_len, filter):
+    def _get_rule_chunk_upper(self, mode, var_name, chunk_len, filter):
         """
         Helper method for chunking constraints
 
@@ -328,20 +421,19 @@ class CalendarSolver:
             if mode == 'min':
                 # For min mode, need to check that none of the smaller chunks
                 # match (hence inequality)
-                if model.task_chunk_min[j] <= chunk_len:
+                if self.task_chunk_min[j] <= chunk_len:
                     return Constraint.Feasible
                 return None, C, chunk_len - 1
                 # return None, model.C6m[i, j], chunk_len - 1
             elif mode == 'max':
                 # For max mode, only need to check once (hence equality)
-                if model.task_chunk_max[j] + 1 == chunk_len:
+                if self.task_chunk_max[j] + 1 == chunk_len:
                     return None, C, filter.size - 1
                 return Constraint.Feasible
 
         return rule
 
-    @staticmethod
-    def _get_rule_chunk_lower(mode, var_name, chunk_len, L):
+    def _get_rule_chunk_lower(self, mode, var_name, chunk_len, L):
         """
         Helper method for chunking constraints
 
@@ -359,9 +451,9 @@ class CalendarSolver:
             See CalendarSolver._get_rule_chunk_upper() for more details.
             """
             C = operator.attrgetter(var_name)(model)[i, j]
-            if mode == 'min' and model.task_chunk_min[j] <= chunk_len:
+            if mode == 'min' and self.task_chunk_min[j] <= chunk_len:
                 return Constraint.Feasible
-            elif mode == 'max' and model.task_chunk_max[j] + 1 != chunk_len:
+            elif mode == 'max' and self.task_chunk_max[j] + 1 != chunk_len:
                 return Constraint.Feasible
             total = sum(L[i, k] * model.A[k, j] for k in model.timeslots)
             return 0, C - total, None
@@ -663,8 +755,8 @@ class CalendarSolver:
 
         def rule(model, j):
             switches = sum(model.D[i, j] for i in model.dtimeslots) / 2
-            return model.task_duration[j] / model.task_chunk_max[j], switches, \
-                   model.task_duration[j] / model.task_chunk_min[j]
+            return self.task_duration[j] / self.task_chunk_max[j], switches, \
+                   self.task_duration[j] / self.task_chunk_min[j]
 
         self.model.constrain_switching4 = Constraint(self.model.tasks,
                                                      rule=rule)
@@ -680,11 +772,12 @@ class CalendarSolver:
         # constraints
         self._constraints_external()
         self._constraints_other()
+        self._constraints_utility()
         self._constraints_task_valid()
         self._constraints_nonoverlapping_tasks()
         self._constraints_task_duration()
         # self._constraints_switching_bounds()
-        # self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
+        self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
 
         self._constraints_chunking1m()
         self._constraints_chunking2m()
@@ -708,7 +801,12 @@ class CalendarSolver:
         # Create a model instance and optimize
         # self.instance = self.model.create_instance("data/calendar.dat")
         self.instance = self.model.create_instance()
-        self._results = self.opt.solve(self.instance)
+        # See pyomo/opt/base/solvers.py:_presolve() for options
+        self._results = self.opt.solve(self.instance, timelimit=TIMELIMIT,
+                                       tee=True, keepfiles=True,
+                                       report_timing=True)
+        # self._results = self.opt.solve(self.instance, timelimit=2e2,
+        # tee=True, keepfiles=True)
         self._optimized = True
 
     def display(self):
@@ -736,29 +834,18 @@ class CalendarSolver:
         task = [self.task_names[k] for k in y]
 
         colors = [COLORS[i] for i in y]
-        source = ColumnDataSource(data=dict(
-            top=top,
-            bottom=bottom,
-            left=left,
-            right=right,
-            chunk_min=chunk_min,
-            chunk_max=chunk_max,
-            duration=duration,
-            task_id=y,
-            task=task,
-            colors=colors,
-        ))
+        source = ColumnDataSource(
+            data=dict(top=top, bottom=bottom, left=left, right=right,
+                chunk_min=chunk_min, chunk_max=chunk_max, duration=duration,
+                task_id=y, task=task, colors=colors, ))
 
-        TOOLTIPS = [
-            ("task", "@task"),
-            ("desc", "@task_id"),
+        TOOLTIPS = [("task", "@task"), ("desc", "@task_id"),
             # ("(x,y)", "($x, $y)"),
             ("duration", "@duration"),
             ("chunk_range", "(@chunk_min, @chunk_max)"),
             ("(t,l)", "(@top, @left)"),
             # ("fill color", "$color[hex, swatch]:fill_color"),
-            ("index", "$index"),
-        ]
+            ("index", "$index"), ]
 
         # [Bokeh] inverted axis range example:
         # https://groups.google.com/a/continuum.io/forum/#!topic/bokeh/CJAvppgQmKo
@@ -766,13 +853,24 @@ class CalendarSolver:
         xr = Range1d(start=-0.5, end=7.5)
         p = figure(plot_width=800, plot_height=800, y_range=yr, x_range=xr,
                    tooltips=TOOLTIPS, title="Calendar")
+        self.p = p
         output_file("calendar.html")
+
         p.xaxis[0].axis_label = 'Weekday (Sun-Fri)'
         p.yaxis[0].axis_label = 'Hour (12AM-12AM)'
 
+        # Replace default yaxis so that each hour is displayed
+        p.yaxis[0].ticker.desired_num_ticks = 24
+        p.yaxis[0].ticker.num_minor_ticks = 4
+        p.xaxis[0].ticker.num_minor_ticks = 0
+
+        # Display task allocation as colored rectangles
         p.quad(top='top', bottom='bottom', left='left', right='right',
                color='colors', source=source)
 
+        # Pre-process task names for display (no repeats, abbreviated names)
+        # FIXME(cathywu) currently assumes that y is in time order, which may
+        #  not be the case when more task types are incorporated
         task_display = []
         curr_task = ""
         for name in task:
@@ -782,16 +880,15 @@ class CalendarSolver:
                 curr_task = name
                 task_display.append(name)
         source2 = ColumnDataSource(
-            data=dict(x=left, y=top, task=[k[:18] for k in task_display],
-                # abbreviated version of task))
+            data=dict(x=left, y=top, # abbreviated version of task
+                task=[k[:18] for k in task_display], ))
 
-        # annotate rectangles with task name
+        # Annotate rectangles with task name
         # [Bokeh] Text properties:
         # https://bokeh.pydata.org/en/latest/docs/user_guide/styling.html#text-properties
         labels = LabelSet(x='x', y='y', text='task', level='glyph', x_offset=3,
                           y_offset=-3, source=source2, text_font_size='7pt',
                           render_mode='canvas')
-
         p.add_layout(labels)
 
         show(p)

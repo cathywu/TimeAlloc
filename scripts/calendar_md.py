@@ -110,6 +110,8 @@ cal.optimize()
 solve_time = time.time() - start_ts
 
 # Display the results
+cal.visualize()
+
 cal.display()
 array = np.reshape([y for (x,y) in cal.instance.A.get_values().items()],
                    (num_timeslots, num_tasks))
@@ -118,5 +120,3 @@ print(array)
 print('Solve time', solve_time)
 for i, task in enumerate(tasks.tasks.keys()):
     print(i, task)
-
-cal.visualize()
