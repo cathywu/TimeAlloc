@@ -13,7 +13,8 @@ FILTERS_WHEN = ["(first thing)", "(last thing)"]
 FILTERS_DAYS = {"daily, ([\.\d]+)": ['M', 'T', 'W', 'R', 'F', 'Sa', 'Su'],
                 "^[A-Z][A-Za-z]*, ([\.\d]+)": DAYOFWEEK,
                 "^[A-Z][A-Za-z]*$": DAYOFWEEK, }
-FILTER_TASK = "^(.*) \[([\.\d]+)( )?(hours|hrs|hour|hr)?\].*"
+FILTER_TASK_HOUR = "^(.*) \[([\.\d]+)( )?(hours|hrs|hour|hr)?\].*"
+FILTER_TASK_MIN = "^(.*) \[([\.\d]+)( )?(min|minutes|mi)?\].*"
 
 
 class TaskParser:
@@ -135,9 +136,17 @@ class TaskParser:
                 # ipdb.set_trace()
                 if task in ["", "\n"]:
                     continue
-                m = re.search(FILTER_TASK, task)
-                task = m.group(1)
-                total = float(m.group(2))
+                try:
+                    # Parse out estimated hours for the task
+                    m = re.search(FILTER_TASK_HOUR, task)
+                    task = m.group(1)
+                    total = float(m.group(2))
+                except AttributeError:
+                    # Parse out estimated minutes for the task
+                    m = re.search(FILTER_TASK_MIN, task)
+                    task = m.group(1)
+                    total = float(m.group(2))/60  # convert to hours
+
                 if task not in self.tasks:
                     self.tasks[task] = {}
                 self.tasks[task]['total'] = total

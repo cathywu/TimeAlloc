@@ -19,7 +19,7 @@ import timealloc.util_time as tutil
 EPS = 1e-2  # epsilon
 
 # Time limit for solver (wallclock)
-TIMELIMIT = 50  # 3600, 1e3, 2e2
+TIMELIMIT = 2e2  # 3600, 1e3, 2e2, 50
 
 # granularity (in hours) for contiguity variables (larger --> easier problem)
 CONT_STRIDE = 12
@@ -895,13 +895,13 @@ class CalendarSolver:
                 task_display.append(name)
         source2 = ColumnDataSource(
             data=dict(x=left, y=top, # abbreviated version of task
-                task=[k[:18] for k in task_display], ))
+                task=[k[:17] for k in task_display], ))
 
         # Annotate rectangles with task name
         # [Bokeh] Text properties:
         # https://bokeh.pydata.org/en/latest/docs/user_guide/styling.html#text-properties
         labels = LabelSet(x='x', y='y', text='task', level='glyph', x_offset=3,
-                          y_offset=-3, source=source2, text_font_size='7pt',
+                          y_offset=-1, source=source2, text_font_size='7pt',
                           render_mode='canvas')
         p.add_layout(labels)
 

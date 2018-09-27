@@ -14,7 +14,7 @@ DEFAULT_CHUNK_MIN = 2  # in IP slot units
 DEFAULT_CHUNK_MAX = 20  # in IP slot units
 
 time_allocation_fname = "scratch/time-allocation-2018-09-03.md"
-tasks_fname = "scratch/tasks-2018-09-03.md"
+tasks_fname = "scratch/tasks-2018-09-27.md"
 
 tasks = TaskParser(time_allocation_fname, tasks_fname)
 
@@ -91,6 +91,20 @@ for i, task in enumerate(tasks.tasks.keys()):
 
 print('Chunks', task_chunk_min, task_chunk_max)
 
+# Use tasks display names if provided
+# TODO(cathywu) Use full task names for eventual gcal events?
+task_names = list(tasks.tasks.keys())
+for i, task in enumerate(tasks.tasks.keys()):
+    if 'display name' in tasks.tasks[task]:
+        task_names[i] = tasks.tasks[task]['display name']
+
+# Permit the scheduling of short tasks
+# TODO(cathywu) Permit the grouping of small tasks into larger ones? Like an
+# errands block
+for i in range(num_tasks):
+    if task_chunk_min[i] > task_duration[i]:
+        task_chunk_min[i] = task_duration[i]
+
 # Prepare the IP
 params = {
     'num_tasks': num_tasks,
@@ -99,7 +113,7 @@ params = {
     'task_valid': overall_mask,
     'task_chunk_min': task_chunk_min,
     'task_chunk_max': task_chunk_max,
-    'task_names': list(tasks.tasks.keys()),
+    'task_names': task_names,
 }
 cal = CalendarSolver(utilities, params)
 
