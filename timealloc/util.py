@@ -70,6 +70,14 @@ def linop_from_1d_filter(filter, n, offset=0, offset_end=None):
     return L, bias
 
 
+def blockdiag(m, incr=1):
+    n = int(m / incr)
+    L = np.zeros((n, m))
+    for i in range(n):
+        L[i, i * incr:(i + 1) * incr] = 1
+    return L
+
+
 def triu(m, incr=1):
     """
     Returns upper triangular matrix with stride length incr

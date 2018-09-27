@@ -19,6 +19,7 @@ Example:
     - Research: How to save giraffes [3 hours]
         - Chunks: 1-1.5
         - Before: 3pm
+        - Spread: true
 
 Valid attributes are:
 
@@ -29,6 +30,7 @@ Valid attributes are:
 - Chunks: hours or hours range
 - Display name: name (permit alternate/short display name for Bokeh
   visualization)
+- Spread: (optional; include to encourage scheduling chunks on multiple days)
 
 Not yet supported
 

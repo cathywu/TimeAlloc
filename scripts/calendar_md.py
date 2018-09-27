@@ -91,12 +91,17 @@ for i, task in enumerate(tasks.tasks.keys()):
 
 print('Chunks', task_chunk_min, task_chunk_max)
 
+# Contiguous (0) or spread (1) scheduling
+task_spread = np.zeros(num_tasks)
+
 # Use tasks display names if provided
 # TODO(cathywu) Use full task names for eventual gcal events?
 task_names = list(tasks.tasks.keys())
 for i, task in enumerate(tasks.tasks.keys()):
     if 'display name' in tasks.tasks[task]:
         task_names[i] = tasks.tasks[task]['display name']
+    if 'spread' in tasks.tasks[task]:
+        task_spread[i] = True
 
 # Permit the scheduling of short tasks
 # TODO(cathywu) Permit the grouping of small tasks into larger ones? Like an
@@ -114,6 +119,7 @@ params = {
     'task_chunk_min': task_chunk_min,
     'task_chunk_max': task_chunk_max,
     'task_names': task_names,
+    'task_spread': task_spread,
 }
 cal = CalendarSolver(utilities, params)
 

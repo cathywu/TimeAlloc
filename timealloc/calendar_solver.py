@@ -47,14 +47,21 @@ class CalendarSolver:
         self.num_tasks = params['num_tasks']
         self.num_timeslots = params['num_timeslots']
         self.valid = params['task_valid']
-        if 'task_names' in params:
-            self.task_names = params['task_names']
-        else:
-            self.task_names = ["" for _ in range(self.num_tasks)]
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
         self.task_chunk_max = params['task_chunk_max']
         self.valid = params['task_valid']
+
+        # Optional parameters
+        if 'task_names' in params:
+            self.task_names = params['task_names']
+        else:
+            self.task_names = ["" for _ in range(self.num_tasks)]
+        if 'task_spread' in params:
+            self.task_spread = params['task_spread']
+        else:
+            # Defaults to prefer contiguous scheduling
+            self.task_spread = np.zeros(self.num_tasks)
 
         # Index sets for iteration
         self.model.tasks = RangeSet(0, self.num_tasks - 1)
@@ -179,6 +186,51 @@ class CalendarSolver:
 
         self.model.constrain_A_total = Constraint(rule=rule)
 
+    def _constraints_task_spread(self):
+        """
+        Encourage the chunks of a task to be spread out. In particular,
+        reward the number of days that a task is scheduled.
+        """
+        # encourage scheduling a chunk for every 24 hours
+        incr = 24 * tutil.SLOTS_PER_HOUR
+        diag = util.blockdiag(self.num_timeslots, incr=incr)
+        slots = diag.shape[0]
+
+        self.model.spreadslots = RangeSet(0, slots - 1)
+        self.model.S = Var(self.model.spreadslots * self.model.tasks,
+                           domain=pe.Integers)
+        self.model.S_total = Var(domain=pe.Reals)
+
+        def rule(model, i, j):
+            """
+            For spread-activated tasks, this rule is used to encourage
+            spreading the chunks out on multiple days.
+
+            More precisely:
+            S[i,j] = whether task j is assigned on day i
+
+            Maximizing sum_i S[i,j] encourages spreading out the task chunks
+            """
+            active = self.task_spread[j]
+            den = sum(diag[i, :])
+            ind = model.timeslots
+            total = sum(diag[i, k] * model.A[k, j] for k in ind) / den
+            total *= active
+            # Desired: S[i,j] = ceil(total)
+            # Desired: S[i,j] = 0 if total <= 0; otherwise, S[i,j] = 1
+            return -EPS, model.S[i, j] - total, -EPS + 1
+
+        self.model.constrain_spread0 = Constraint(self.model.spreadslots,
+                                                  self.model.tasks, rule=rule)
+
+        def rule(model):
+            den = self.num_tasks * slots
+            num = 0.25
+            total = summation(model.S) / den * num
+            return model.S_total == total
+
+        self.model.constrain_spread1 = Constraint(rule=rule)
+
     def _constraints_task_contiguity_linear(self):
         """
         Encourage the chunks of a tasks to be scheduled close to one another,
@@ -269,9 +321,12 @@ class CalendarSolver:
             Maximizing sum_i CTu[i,j] encourages early task completion.
             Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
+            active = 1-self.task_spread[j]
             den = sum(triu[i, :])
             ind = model.timeslots
             total = sum(triu[i, k] * (1-model.A[k, j]) for k in ind) / den
+            total *= active
+            # CTu[i,j] = floor(total)
             return -1 + EPS, model.CTu[i, j] - total, EPS + self.slack_cont
 
         self.model.constrain_contiguity_u = Constraint(self.model.contslots,
@@ -289,9 +344,11 @@ class CalendarSolver:
             Maximizing sum_i CTl[i,j] encourages late starting.
             Maximizing sum_i CTu[i,j]+CTl[i,j] encourages contiguous scheduling.
             """
+            active = 1-self.task_spread[j]
             den = sum(tril[i, :])
             ind = model.timeslots
             total = sum(tril[i, k] * (1-model.A[k, j]) for k in ind) / den
+            total *= active
             return -1 + EPS, model.CTl[i, j] - total, EPS + self.slack_cont
 
         self.model.constrain_contiguity_l = Constraint(self.model.contslots,
@@ -777,7 +834,7 @@ class CalendarSolver:
 
     def _construct_ip(self):
         """
-        Aggregates IP construction
+        Aggregates MIP construction
         """
         # name the problem
         self.integer_program = "CalenderSolver"
@@ -792,6 +849,7 @@ class CalendarSolver:
         self._constraints_task_duration()
         # self._constraints_switching_bounds()
         self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
+        self._constraints_task_spread()
 
         self._constraints_chunking1m()
         self._constraints_chunking2m()
@@ -838,8 +896,8 @@ class CalendarSolver:
             (self.num_timeslots, self.num_tasks))
 
         x, y = array.nonzero()
-        top = (x % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
-        bottom = top - (0.95 / tutil.SLOTS_PER_HOUR)
+        bottom = (x % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
+        top = bottom + (0.95 / tutil.SLOTS_PER_HOUR)
         left = np.floor(x / (24 * tutil.SLOTS_PER_HOUR))
         right = left + 0.95
         chunk_min = [self.task_chunk_min[k] for k in y]
