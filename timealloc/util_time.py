@@ -138,3 +138,24 @@ def datetime_to_slot_mask(time, modifier="before", duration=None):
         raise (
             NotImplementedError, "Modifier {} not supported".format(modifier))
     return mask
+
+
+def modifier_mask(string, modifier, total):
+    sub_mask = np.zeros(24 * 7 * SLOTS_PER_HOUR)
+    attributes = string.split('; ')
+    for attr in attributes:
+        # print(task, key, attr)
+        try:
+            stime = text_to_struct_time(attr)
+            mask = struct_time_to_slot_mask(stime, modifier=modifier,
+                                            duration=hour_to_ip_slot(total))
+        except UnboundLocalError:
+            try:
+                dtime = text_to_datetime(attr, weekno=39, year=2018)
+                mask = datetime_to_slot_mask(dtime, modifier=modifier,
+                                             duration=hour_to_ip_slot(total))
+            except UnboundLocalError:
+                raise (NotImplementedError,
+                       "{} {} not supported".format(modifier, attr))
+        sub_mask = np.logical_or(sub_mask, mask)
+    return sub_mask

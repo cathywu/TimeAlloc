@@ -4,14 +4,12 @@ import numpy as np
 
 from bokeh.palettes import d3
 from bokeh.plotting import figure, output_file, show
-from bokeh.models import ColumnDataSource, SingleIntervalTicker, LinearAxis, \
-    LabelSet, Range1d
+from bokeh.models import ColumnDataSource, LabelSet, Range1d
 import pyomo.environ as pe
-from pyomo.environ import AbstractModel, RangeSet, Set, Var, Objective, Param, \
-    Constraint, summation, Expression
+from pyomo.environ import AbstractModel, RangeSet, Var, Objective, Constraint, \
+    summation, Expression
 from pyomo.opt import SolverFactory
 
-from timealloc.util import fill_from_array, fill_from_2d_array
 import timealloc.util as util
 import timealloc.util_time as tutil
 
@@ -41,22 +39,32 @@ class CalendarSolver:
         self.slack_cont = SLACK
 
         # read parameters
-        # self.num_tasks = Param(initialize=params['num_tasks'], default=5)
-        # self.num_timeslots = Param(initialize=params['num_timeslots'],
-        #                            default=10)
+        self.num_categories = params['num_categories']
         self.num_tasks = params['num_tasks']
         self.num_timeslots = params['num_timeslots']
+
+        # num_tasks-by-num_categories matrix
+        self.task_category = params['task_category']
+
+        self.category_min = params['category_min']
+        self.category_max = params['category_max']
         self.valid = params['task_valid']
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
         self.task_chunk_max = params['task_chunk_max']
-        self.valid = params['task_valid']
 
         # Optional parameters
+        if 'category_names' in params:
+            self.cat_names = params['category_names']
+        else:
+            self.cat_names = ["C{}".format(k) for k in
+                              range(self.num_categories)]
+
         if 'task_names' in params:
             self.task_names = params['task_names']
         else:
-            self.task_names = ["" for _ in range(self.num_tasks)]
+            self.task_names = ["T{}".format(i) for i in range(self.num_tasks)]
+
         if 'task_spread' in params:
             self.task_spread = params['task_spread']
         else:
@@ -65,6 +73,7 @@ class CalendarSolver:
 
         # Index sets for iteration
         self.model.tasks = RangeSet(0, self.num_tasks - 1)
+        self.model.categories = RangeSet(0, self.num_categories - 1)
         self.model.timeslots = RangeSet(0, self.num_timeslots - 1)
         self.model.dtimeslots = RangeSet(0, self.num_timeslots - 2)
 
@@ -93,10 +102,15 @@ class CalendarSolver:
         self.model.A = Var(self.model.timeslots * self.model.tasks,
                            domain=pe.Boolean)
         self.model.A_total = Var(domain=pe.Reals)
+        # category matrix C (category correctness for A[i,j,:])
+        self.model.C = Var(self.model.timeslots * self.model.tasks,
+                           domain=pe.Boolean)
+        # category durations
+        self.model.C_total = Var(self.model.categories, domain=pe.Reals)
         # delta D
         # TODO(cathywu) consider whether this / switching constraints are needed
-        self.model.D = Var(self.model.dtimeslots * self.model.tasks,
-                           domain=pe.Integers)
+        # self.model.D = Var(self.model.dtimeslots * self.model.tasks,
+        #                    domain=pe.Integers)
 
     def _objective_switching(self):
         """
@@ -117,7 +131,8 @@ class CalendarSolver:
         """ Objective function to minimize """
 
         def obj_expression(model):
-            return -(model.A_total + model.CTu_total + model.CTl_total)
+            return -(model.A_total + model.CTu_total + model.CTl_total +
+                     model.S_total)
             # return -(model.A_total)
             # model.A_total + model.CTu / self.slack_cont + model.CTl /
             # self.slack_cont)
@@ -139,6 +154,56 @@ class CalendarSolver:
         """ Other constraints, user imposed, like keeping Friday night free """
         pass
 
+    def _constraints_task_assigned(self):
+        """
+        Indicator variables (matrix) of whether task j is assigned in slot i
+        """
+
+        def rule(model, i, j):
+            total = sum(model.A[i, j, k] for k in
+                        model.categories) / self.num_categories
+            # S[i,j] = ceil(total)
+            return -EPS, model.A[i, j] - total, 1 - EPS
+
+        self.model.constrain_assigned = Constraint(self.model.timeslots,
+                                                self.model.tasks,
+                                                rule=rule)
+
+    def _constraints_task_cat_correctness(self):
+        """
+        Indicator variables (matrix) of whether task j is assigned to exactly
+        the right categories (in time slot i)
+
+        Ensure that task categories are consistent in allocation A
+        """
+
+        def rule(model, i, j):
+            total = sum(model.A[i, j, k] * self.task_category[j, k] + (
+                1 - model.A[i, j, k]) * (1 - self.task_category[j, k]) for k in
+                        range(self.num_categories)) / self.num_categories
+            # C[i,j] = floor(total)
+            return -1+EPS, model.C[i, j] - total, EPS
+
+        self.model.constrain_cat_correctness = Constraint(self.model.timeslots,
+                                                          self.model.tasks,
+                                                          rule=rule)
+
+        def rule(model):
+            # Desired: I want task j to be unassigned or task j to be
+            # assigned to all of its categories
+            # Desired2: I want anything but: task j to be assigned and task j
+            # to have the wrong categories
+            total = sum(
+                (1 - model.A[i, j]) + model.C[i, j] for i in model.timeslots for
+                j in model.tasks)
+            # total = sum(
+            #     model.A[i, j] * (1 - model.C[i, j]) for i in
+            # model.timeslots for
+            #     j in model.tasks)
+            return self.num_timeslots * self.num_tasks, total, None
+
+        self.model.constrain_cat_consistency = Constraint(rule=rule)
+
     def _constraints_task_valid(self):
         """
         User-defined time constraints on tasks
@@ -148,7 +213,8 @@ class CalendarSolver:
             return 0, model.A[i, j] * (1-self.valid[i, j]), 0
 
         self.model.constrain_valid = Constraint(self.model.timeslots,
-                                                self.model.tasks, rule=rule)
+                                                self.model.tasks,
+                                                rule=rule)
 
     def _constraints_nonoverlapping_tasks(self):
         """
@@ -162,6 +228,28 @@ class CalendarSolver:
 
         self.model.constrain_nonoverlapping = Constraint(self.model.timeslots,
                                                          rule=rule)
+
+    def _constraints_category_duration(self):
+        """
+        Each category duration should be within some user-specified range
+        """
+
+        def rule(model, k):
+            ind_i = model.timeslots
+            ind_j = model.tasks
+            cat_k_total = sum(
+                model.A[i, j] * self.task_category[j, k] for i in ind_i for j in
+                ind_j)
+            return model.C_total[k] == cat_k_total
+
+        self.model.constrain_cat_duration0 = Constraint(self.model.categories,
+                                                        rule=rule)
+
+        def rule(model, k):
+            return self.category_min[k], model.C_total[k], self.category_max[k]
+
+        self.model.constrain_cat_duration1 = Constraint(self.model.categories,
+                                                        rule=rule)
 
     def _constraints_task_duration(self):
         """
@@ -201,7 +289,7 @@ class CalendarSolver:
                            domain=pe.Integers)
         self.model.S_total = Var(domain=pe.Reals)
 
-        def rule(model, i, j):
+        def rule(model, p, j):
             """
             For spread-activated tasks, this rule is used to encourage
             spreading the chunks out on multiple days.
@@ -212,13 +300,13 @@ class CalendarSolver:
             Maximizing sum_i S[i,j] encourages spreading out the task chunks
             """
             active = self.task_spread[j]
-            den = sum(diag[i, :])
+            den = sum(diag[p, :])
             ind = model.timeslots
-            total = sum(diag[i, k] * model.A[k, j] for k in ind) / den
+            total = sum(diag[p, i] * model.A[i, j] for i in ind) / den
             total *= active
             # Desired: S[i,j] = ceil(total)
             # Desired: S[i,j] = 0 if total <= 0; otherwise, S[i,j] = 1
-            return -EPS, model.S[i, j] - total, -EPS + 1
+            return -EPS, model.S[p, j] - total, 1 - EPS
 
         self.model.constrain_spread0 = Constraint(self.model.spreadslots,
                                                   self.model.tasks, rule=rule)
@@ -844,6 +932,9 @@ class CalendarSolver:
         self._constraints_external()
         self._constraints_other()
         self._constraints_utility()
+        self._constraints_category_duration()
+        # self._constraints_task_assigned()
+        # self._constraints_task_cat_correctness()
         self._constraints_task_valid()
         self._constraints_nonoverlapping_tasks()
         self._constraints_task_duration()
@@ -895,29 +986,42 @@ class CalendarSolver:
             [y for (x, y) in self.instance.A.get_values().items()],
             (self.num_timeslots, self.num_tasks))
 
-        x, y = array.nonzero()
-        bottom = (x % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
+        times, tasks = array.nonzero()
+        bottom = (times % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
         top = bottom + (0.95 / tutil.SLOTS_PER_HOUR)
-        left = np.floor(x / (24 * tutil.SLOTS_PER_HOUR))
+        left = np.floor(times / (24 * tutil.SLOTS_PER_HOUR))
         right = left + 0.95
-        chunk_min = [self.task_chunk_min[k] for k in y]
-        chunk_max = [self.task_chunk_max[k] for k in y]
-        duration = [self.task_duration[k] for k in y]
-        task = [self.task_names[k] for k in y]
+        chunk_min = [self.task_chunk_min[k] for k in tasks]
+        chunk_max = [self.task_chunk_max[k] for k in tasks]
+        duration = [self.task_duration[k] for k in tasks]
+        task_names = [self.task_names[k] for k in tasks]
+        category = [" ,".join(
+            [self.cat_names[l] for l, j in enumerate(array) if j != 0]) for
+                    array in [self.task_category[j, :] for j in tasks]]
 
-        colors = [COLORS[i] for i in y]
-        source = ColumnDataSource(
-            data=dict(top=top, bottom=bottom, left=left, right=right,
-                chunk_min=chunk_min, chunk_max=chunk_max, duration=duration,
-                task_id=y, task=task, colors=colors, ))
+        colors = [COLORS[i % 20] for i in tasks]
+        source = ColumnDataSource(data=dict(
+            top=top,
+            bottom=bottom,
+            left=left,
+            right=right,
+            chunk_min=chunk_min,
+            chunk_max=chunk_max,
+            duration=duration,
+            task_id=tasks,
+            task=task_names,
+            category=category,
+            colors=colors,
+        ))
 
-        TOOLTIPS = [("task", "@task"), ("desc", "@task_id"),
-            # ("(x,y)", "($x, $y)"),
-            ("duration", "@duration"),
-            ("chunk_range", "(@chunk_min, @chunk_max)"),
-            ("(t,l)", "(@top, @left)"),
-            # ("fill color", "$color[hex, swatch]:fill_color"),
-            ("index", "$index"), ]
+        TOOLTIPS = [("task", "@task"),
+                    ("desc", "@task_id"),
+                    ("category", "@category"),
+                    ("duration", "@duration"),
+                    ("chunk_range", "(@chunk_min, @chunk_max)"),
+                    ("(t,l)", "(@top, @left)"),
+                    ("index", "$index"),
+                    ]
 
         # [Bokeh] inverted axis range example:
         # https://groups.google.com/a/continuum.io/forum/#!topic/bokeh/CJAvppgQmKo
@@ -945,15 +1049,17 @@ class CalendarSolver:
         #  not be the case when more task types are incorporated
         task_display = []
         curr_task = ""
-        for name in task:
+        for name in task_names:
             if name == curr_task:
                 task_display.append("")
             else:
                 curr_task = name
                 task_display.append(name)
-        source2 = ColumnDataSource(
-            data=dict(x=left, y=top, # abbreviated version of task
-                task=[k[:17] for k in task_display], ))
+        source2 = ColumnDataSource(data=dict(
+            x=left,
+            y=top,  # abbreviated version of task
+            task=[k[:17] for k in task_display],
+        ))
 
         # Annotate rectangles with task name
         # [Bokeh] Text properties:

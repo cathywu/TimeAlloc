@@ -1,5 +1,11 @@
+Input formats
+-------------
+
+Supported inputs are markdown files (`.md`).
+
+
 Task list format
-----------------
+================
 
 The basic format is:
 
@@ -42,3 +48,19 @@ Not yet supported
 - In: location
 - Deadline: date/time
 - Deadline?: date/time (uncertain deadline)
+
+Categories
+==========
+
+Privileged categories (not yet supported)
+
+- Work
+- Break
+- Lunch
+- Dinner
+- Errands
+- Sleep
+- Social
+- Outreach/service
+- Me
+- Wellbeing

@@ -50,16 +50,21 @@ class TaskParser:
                 for level2 in top.next.next.children:
                     if not isinstance(level2, NavigableString):
                         # print('Category:', level2.next)
-                        m = re.search('(.+) \[([\.\d]+)\].*', level2.next)
+                        m = re.search('(.+) \[([ .,\d]+)\].*', level2.next)
                         category = m.group(1)
-                        total = float(m.group(2))
+                        total = m.group(2).split(', ')
 
                         if category not in self.time_alloc:
                             self.time_alloc[category] = {}
                         self.time_alloc[category]['tag'] = tag
-                        self.time_alloc[category]['total'] = total
-                        self.tags[tag]['total'] += total
-                        self.running_total += total
+
+                        self.time_alloc[category]['total'] = float(total[0])
+                        self.time_alloc[category]['min'] = float(total[0])
+                        if len(total) > 1:
+                            self.time_alloc[category]['max'] = float(total[1])
+
+                        self.tags[tag]['total'] += float(total[0])
+                        self.running_total += float(total[0])
                     if isinstance(level2.next.next, NavigableString):
                         # print('Extra:', level2.next.next)
                         continue
@@ -106,7 +111,7 @@ class TaskParser:
                                             'constraints'].append(datum)
 
                             else:
-                                self.time_alloc[category][label] = metadatum
+                                self.time_alloc[category][label] = metadata
 
                         if isinstance(level3.next.next, NavigableString):
                             # print('Extra:', level2.next.next)

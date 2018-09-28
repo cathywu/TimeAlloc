@@ -5,6 +5,7 @@
 *.dat
 *.md
 *.pdf
+*.pyomo.soln
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
