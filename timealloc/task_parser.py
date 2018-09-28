@@ -74,7 +74,7 @@ class TaskParser:
                             label, metadata = level3.next.split(": ", 1)
                             label = label.lower()
                             metadatum = metadata.split("; ")
-                            if label == "when":
+                            if label == "note":
                                 self.time_alloc[category][label] = {}
                                 self.time_alloc[category][label][
                                     'constraints'] = []
@@ -109,7 +109,10 @@ class TaskParser:
                                     if not ignore:
                                         self.time_alloc[category][label][
                                             'constraints'].append(datum)
-
+                            elif label == "when":
+                                if label not in self.time_alloc[category]:
+                                    self.time_alloc[category][label] = []
+                                self.time_alloc[category][label].append(metadata)
                             else:
                                 self.time_alloc[category][label] = metadata
 
@@ -164,7 +167,7 @@ class TaskParser:
                         # print('Metadata:', level3.next)
                         label, metadata = level3.next.split(": ", 1)
                         label = label.lower()
-                        if label == "when":
+                        if label == "note":
                             metadatum = metadata.split("; ")
                             self.tasks[task][label] = {}
                             self.tasks[task][label]['constraints'] = []
@@ -197,6 +200,10 @@ class TaskParser:
                                 if not ignore:
                                     self.tasks[task][label][
                                         'constraints'].append(datum)
+                        elif label == "when":
+                            if label not in self.tasks[task]:
+                                self.tasks[task][label] = []
+                            self.tasks[task][label].append(metadata)
 
                         else:
                             self.tasks[task][label] = metadata

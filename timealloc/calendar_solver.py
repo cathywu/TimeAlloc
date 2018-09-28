@@ -48,6 +48,8 @@ class CalendarSolver:
 
         self.category_min = params['category_min']
         self.category_max = params['category_max']
+        self.category_days = params['category_days']
+        self.category_days_total = params['category_total']
         self.valid = params['task_valid']
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
@@ -105,6 +107,10 @@ class CalendarSolver:
         # category matrix C (category correctness for A[i,j,:])
         self.model.C = Var(self.model.timeslots * self.model.tasks,
                            domain=pe.Boolean)
+        # day slots
+        self.model.dayslots = RangeSet(0, 6)  # 7 days
+        self.model.S = Var(self.model.dayslots * self.model.tasks,
+                           domain=pe.Integers)
         # category durations
         self.model.C_total = Var(self.model.categories, domain=pe.Reals)
         # delta D
@@ -274,6 +280,46 @@ class CalendarSolver:
 
         self.model.constrain_A_total = Constraint(rule=rule)
 
+    def _constraints_category_days(self):
+        """
+        Constrain the days in which (tasks from) each category is allocated
+        Encourage the chunks of a task to be spread out. In particular,
+        reward the number of days that a task is scheduled.
+        """
+
+        self.model.S_cat = Var(self.model.dayslots * self.model.categories,
+                               domain=pe.Boolean)
+
+        def rule(model, s, k):
+            """
+            S_cat[s,k] = whether category k is assigned on day s
+            """
+            den = sum(self.task_category[:, k])
+            ind_j = model.tasks
+            total = sum(self.task_category[j, k] * model.S[s, j] for j in
+                        ind_j) / den
+            # Desired: S[i,j] = ceil(total)
+            # Desired: S[i,j] = 0 if total <= 0; otherwise, S[i,j] = 1
+            return -EPS, model.S_cat[s, k] - total, 1 - EPS
+
+        self.model.constrain_cat_days0 = Constraint(self.model.dayslots,
+            self.model.categories, rule=rule)
+
+        def rule(model, k):
+            """
+            Lower bound on number of distinct days in which a (task from a)
+            category is assigned.
+
+            More precisely:
+            sum_s S_cat[s,k] >= cat_days[k]
+            """
+            ind_s = model.dayslots
+            total = sum(model.S_cat[s, k] for s in ind_s)
+            return self.category_days_total[k], total, None
+
+        self.model.constrain_cat_days1 = Constraint(self.model.categories,
+                                                    rule=rule)
+
     def _constraints_task_spread(self):
         """
         Encourage the chunks of a task to be spread out. In particular,
@@ -284,9 +330,6 @@ class CalendarSolver:
         diag = util.blockdiag(self.num_timeslots, incr=incr)
         slots = diag.shape[0]
 
-        self.model.spreadslots = RangeSet(0, slots - 1)
-        self.model.S = Var(self.model.spreadslots * self.model.tasks,
-                           domain=pe.Integers)
         self.model.S_total = Var(domain=pe.Reals)
 
         def rule(model, p, j):
@@ -299,22 +342,23 @@ class CalendarSolver:
 
             Maximizing sum_i S[i,j] encourages spreading out the task chunks
             """
-            active = self.task_spread[j]
             den = sum(diag[p, :])
-            ind = model.timeslots
-            total = sum(diag[p, i] * model.A[i, j] for i in ind) / den
-            total *= active
+            ind_i = model.timeslots
+            total = sum(diag[p, i] * model.A[i, j] for i in ind_i) / den
             # Desired: S[i,j] = ceil(total)
             # Desired: S[i,j] = 0 if total <= 0; otherwise, S[i,j] = 1
             return -EPS, model.S[p, j] - total, 1 - EPS
 
-        self.model.constrain_spread0 = Constraint(self.model.spreadslots,
+        self.model.constrain_spread0 = Constraint(self.model.dayslots,
                                                   self.model.tasks, rule=rule)
 
         def rule(model):
             den = self.num_tasks * slots
             num = 0.25
-            total = summation(model.S) / den * num
+            weights = np.ones((7, self.num_tasks))
+            for j in range(self.num_tasks):
+                weights[:, j] = self.task_spread[j]
+            total = summation(weights, model.S) / den * num
             return model.S_total == total
 
         self.model.constrain_spread1 = Constraint(rule=rule)
@@ -941,6 +985,7 @@ class CalendarSolver:
         # self._constraints_switching_bounds()
         self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
         self._constraints_task_spread()
+        self._constraints_category_days()
 
         self._constraints_chunking1m()
         self._constraints_chunking2m()
@@ -985,6 +1030,7 @@ class CalendarSolver:
         array = np.reshape(
             [y for (x, y) in self.instance.A.get_values().items()],
             (self.num_timeslots, self.num_tasks))
+        array = np.round(array)
 
         times, tasks = array.nonzero()
         bottom = (times % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR

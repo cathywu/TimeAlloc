@@ -8,8 +8,22 @@ import numpy as np
 
 # TODO(cathywu) move to config
 SLOTS_PER_HOUR = 2  # each slot represents 15 minutes
-WEEKDAYS = {'SATURDAY': 0, 'SUNDAY': 1, 'MONDAY': 2, 'TUESDAY': 3,
-            'WEDNESDAY': 4, 'THURSDAY': 5, 'FRIDAY': 6, }
+WEEKDAYS = {
+    'SATURDAY': 0,
+    'SUNDAY': 1,
+    'MONDAY': 2,
+    'TUESDAY': 3,
+    'WEDNESDAY': 4,
+    'THURSDAY': 5,
+    'FRIDAY': 6,
+    'Sa': 0,
+    'Su': 1,
+    'M': 2,
+    'T': 3,
+    'W': 4,
+    'R': 5,
+    'F': 6,
+}
 
 
 def hour_to_ip_slot(hour):
@@ -140,22 +154,42 @@ def datetime_to_slot_mask(time, modifier="before", duration=None):
     return mask
 
 
-def modifier_mask(string, modifier, total):
+def modifier_mask(clause, total):
     sub_mask = np.zeros(24 * 7 * SLOTS_PER_HOUR)
-    attributes = string.split('; ')
-    for attr in attributes:
-        # print(task, key, attr)
-        try:
-            stime = text_to_struct_time(attr)
-            mask = struct_time_to_slot_mask(stime, modifier=modifier,
-                                            duration=hour_to_ip_slot(total))
-        except UnboundLocalError:
+    subclauses = clause.split('; ')
+    for subclause in subclauses:
+        modifier, attribute = subclause.split(' ', 1)
+        attributes = attribute.split(', ')
+        for attr in attributes:
+            # print(task, key, attr)
             try:
-                dtime = text_to_datetime(attr, weekno=39, year=2018)
-                mask = datetime_to_slot_mask(dtime, modifier=modifier,
-                                             duration=hour_to_ip_slot(total))
+                stime = text_to_struct_time(attr)
+                mask = struct_time_to_slot_mask(stime, modifier=modifier,
+                                                duration=hour_to_ip_slot(total))
             except UnboundLocalError:
-                raise (NotImplementedError,
-                       "{} {} not supported".format(modifier, attr))
-        sub_mask = np.logical_or(sub_mask, mask)
+                try:
+                    dtime = text_to_datetime(attr, weekno=39, year=2018)
+                    mask = datetime_to_slot_mask(dtime, modifier=modifier,
+                                                 duration=hour_to_ip_slot(total))
+                except UnboundLocalError:
+                    raise (NotImplementedError,
+                           "{} {} not supported".format(modifier, attr))
+            sub_mask = np.logical_or(sub_mask, mask)
     return sub_mask
+
+
+def parse_days(string):
+    if string == "daily":
+        return np.ones(7), 7
+    else:
+        mask = np.zeros(7)
+        string_bits = string.split('; ', 1)
+        days = string_bits[0].split(" ")
+        if len(string_bits) > 1:
+            total = int(string_bits[-1])
+        else:
+            total = len(days)
+        for day in days:
+            mask[WEEKDAYS[day]] = 1
+        return mask, total
+
