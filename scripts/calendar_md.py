@@ -15,6 +15,7 @@ MODIFIERS = ['after', 'before', 'at', 'on']
 NUMSLOTS = 24 * 7 * tutil.SLOTS_PER_HOUR
 
 # User specified input files
+# time_allocation_fname = "scratch/time-allocation-2018-09-28-simple.md"
 time_allocation_fname = "scratch/time-allocation-2018-09-27b.md"
 tasks_fname = "scratch/tasks-2018-09-27b.md"
 
@@ -88,7 +89,7 @@ for k, cat in enumerate(category_names):
         else:
             print('Not yet handled key ({}) for {}'.format(key, cat))
 
-print("Category min/max")
+print("Category min/max:")
 print(category_min)
 print(category_max)
 
@@ -140,7 +141,7 @@ for i, task in enumerate(tasks.tasks.keys()):
                                   dtype=int)
     # print(overall_mask.reshape((7,int(overall_mask.size/7))))
 
-print('Chunks')
+print('Chunks min/max:')
 print(task_chunk_min)
 print(task_chunk_max)
 

@@ -8,7 +8,7 @@ import timealloc.util as util
 
 DAYOFWEEK = re.compile('[A-Z][a-z]*')
 
-TIME_AVAILABLE = 168
+TIME_AVAILABLE = 18 * 7  # 168
 FILTERS_WHEN = ["(first thing)", "(last thing)"]
 FILTERS_DAYS = {"daily, ([\.\d]+)": ['M', 'T', 'W', 'R', 'F', 'Sa', 'Su'],
                 "^[A-Z][A-Za-z]*, ([\.\d]+)": DAYOFWEEK,
@@ -122,8 +122,8 @@ class TaskParser:
                         for e in level3.children:
                             print('Extra children (not supported):', e)
 
-        print(json.dumps(self.time_alloc, indent=4))
-        print(json.dumps(self.tags, indent=4))
+        # print(json.dumps(self.time_alloc, indent=4))
+        # print(json.dumps(self.tags, indent=4))
         if self.running_total != TIME_AVAILABLE:
             print("WARNING: time allocation is off ({} != {} hours)".format(
                 self.running_total, TIME_AVAILABLE))
@@ -213,7 +213,7 @@ class TaskParser:
                         continue
                     for e in level3.children:
                         print('Extra children (not supported):', e)
-        print(json.dumps(self.tasks, indent=4))
+        # print(json.dumps(self.tasks, indent=4))
         if self.running_total_tasks != self.time_alloc['Work']['total']:
             print("WARNING: work allocation is off ({} != {} hours)".format(
                 self.running_total_tasks, self.time_alloc['Work']['total']))
