@@ -59,13 +59,16 @@ utilities = np.ones((NUMSLOTS, num_tasks))
 # Fewer points for scheduling default tasks
 utilities[:, num_work_tasks:] = 0.5  # TODO parameterize this
 
-# Contiguous (0) or spread (1) scheduling
+# contiguous (0) or spread (1) scheduling; default is contiguous (0)
 task_spread = np.zeros(num_tasks)
+# by default, categories are allowed to be assigned on any timeslots
+category_masks = np.ones((24 * 7 * tutil.SLOTS_PER_HOUR, num_categories))
+# by default, no categories need to be assigned on any particular days
+category_days = np.zeros((7, num_categories))
+# by default, each category is required on 0 days
+category_days_total = np.zeros(num_categories)
 
 # Read out per-category attributes
-category_masks = np.ones((24 * 7 * tutil.SLOTS_PER_HOUR, num_categories))
-category_days = np.ones((7, num_categories))
-category_days_total = np.zeros(num_categories)
 for k, cat in enumerate(category_names):
     for key in tasks.time_alloc[cat]:
         if key == "when":
