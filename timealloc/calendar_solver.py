@@ -307,10 +307,21 @@ class CalendarSolver:
 
     def _constraints_category_days(self):
         """
-        Constrain the days in which (tasks from) each category is allocated
-        Encourage the chunks of a task to be spread out. In particular,
-        reward the number of days that a task is scheduled.
+        Ensure that enough (tasks of) categories are assigned on days as
+        indicated by category_days.
         """
+
+        def rule(model, s, k):
+            """
+            Ensure that a task of a category is assigned on each day as desired.
+
+            More precisely:
+            S_cat[s,k] >= cat_days[s, k]
+            """
+            return self.category_days[s, k], model.S_cat[s, k], None
+
+        self.model.constrain_cat_days2 = Constraint(self.model.dayslots,
+            self.model.categories, rule=rule)
 
         def rule(model, k):
             """
@@ -322,7 +333,7 @@ class CalendarSolver:
             """
             return self.category_days_total[k], model.S_cat_total[k], None
 
-        self.model.constrain_cat_days2 = Constraint(self.model.categories,
+        self.model.constrain_cat_days3 = Constraint(self.model.categories,
                                                     rule=rule)
 
     def _constraints_dependencies(self):
@@ -1023,7 +1034,7 @@ class CalendarSolver:
         # FIXME this might be horrendously slow
         # self._constraints_dependencies()  # de-prioritized
 
-        # self._constraints_chunking1m()
+        self._constraints_chunking1m()
         # self._constraints_chunking2m()
         # self._constraints_chunking3m()
         # self._constraints_chunking4m()
