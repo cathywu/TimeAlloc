@@ -54,6 +54,8 @@ class CalendarSolver:
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
         self.task_chunk_max = params['task_chunk_max']
+        self.task_before = params['task_before']
+        self.task_after = params['task_after']
 
         # Optional parameters
         if 'category_names' in params:
@@ -106,6 +108,8 @@ class CalendarSolver:
         # Total utility of allocation A
         self.model.A_total = Var(domain=pe.Reals)
 
+        # Slots within a day
+        self.model.intradayslots = RangeSet(0, self.num_timeslots/7-1)  # 7 days
         # Day slots
         self.model.dayslots = RangeSet(0, 6)  # 7 days
         # Tasks assigned on days
@@ -113,6 +117,14 @@ class CalendarSolver:
                            domain=pe.Integers, initialize=0)
         # Spread utility
         self.model.S_total = Var(domain=pe.Reals)
+
+        # Task start/end slots (per day)
+        self.model.T_end = Var(self.model.dayslots, self.model.tasks,
+                               domain=pe.Integers,
+                               bounds=(0, self.num_timeslots / 7 - 1))
+        # self.model.T_start = Var(self.model.dayslots, self.model.tasks,
+        #                          domain=pe.Integers,
+        #                          bounds=(0, self.num_timeslots / 7 - 1))
 
         # Categories assigned on days
         self.model.S_cat = Var(self.model.dayslots * self.model.categories,
@@ -312,6 +324,128 @@ class CalendarSolver:
 
         self.model.constrain_cat_days2 = Constraint(self.model.categories,
                                                     rule=rule)
+
+    def _constraints_dependencies(self):
+        """
+        Before/after task dependencies
+        """
+        # FIXME(cathywu) returning infeasible solutions, de-prioritized for now
+
+        def rule(model, d, i, j):
+            """
+            A[i + off] * num[i] <= T_end[d, j]
+            """
+            off = d * 48
+            num = np.arange(self.num_timeslots / 7)
+            total = model.A[i + off, j] * num[i]
+            return 0, model.T_end[d, j] - total, None
+
+        self.model.constrain_task_end = Constraint(self.model.dayslots,
+                                                   self.model.intradayslots,
+                                                   self.model.tasks, rule=rule)
+
+        self.model.T0_end = Var(self.model.timeslots, self.model.tasks,
+                                domain=pe.Boolean)
+
+        def rule(model, d, i, j):
+            """
+            T0_end[i + off,j] = 1 iff i <= T_end[d, j]
+            """
+            off = d * 48
+            num = np.arange(self.num_timeslots / 7)
+            total = (model.T_end[d, j] - num[i] + 1) / 48
+            return -EPS, model.T0_end[i + off, j] - total, 1 - EPS
+
+        self.model.constrain_task_end1 = Constraint(self.model.dayslots,
+                                                    self.model.intradayslots,
+                                                    self.model.tasks, rule=rule)
+
+        def rule(model, i, j):
+            """
+            Entries A[i, j] after T_end[d, j] are zero.
+            That is, either the entry is before T_end[d, j] or it is zero.
+
+            T0_end[i,j] == 1 or A[i,j] == 0
+            """
+            return 1, model.T0_end[i, j] + (1-model.A[i, j]), None
+
+        # self.model.constrain_task_end2 = Constraint(self.model.timeslots,
+        #                                            self.model.tasks, rule=rule)
+
+        def rule(model, d, j0, j1):
+            """
+            If j0 should be after j1, then numbers[i0] >= numbers[i1]
+            Of course, this only applies to active slots in A.
+
+            model.T_end[d, j0] >= model.T_end[d, j1]
+            """
+            if self.task_after[j0, j1] == 0:
+                return Constraint.Feasible
+            total = model.T_end[d, j0] - model.T_end[d, j1]
+            return 0, total, None
+
+        self.model.constrain_after = Constraint(self.model.dayslots,
+                                                self.model.tasks,
+                                                self.model.tasks, rule=rule)
+
+    def _constraints_dependencies0(self):
+        """
+        Before/after task dependencies
+        """
+
+        def rule(model, d, i0, i1, j0, j1):
+            """
+            If j0 should be before j1, then numbers[i0] <= numbers[i1]
+            Of course, this only applies to active slots in A.
+            """
+            if self.task_before[j0, j1] == 0:
+                return Constraint.Feasible
+            if i0 <= i1:
+                return Constraint.Feasible
+            off = d * self.num_timeslots / 7
+            num = np.arange(self.num_timeslots / 7)
+
+            A0 = model.A[i0 + off, j0]
+            A1 = model.A[i1 + off, j1]
+            total = A0 * num[i0] - A1 * num[i1]
+
+            # if A[i1,j1] == 0, then force the constraint to be true via noop
+            noop = (1 - A1) * num[i0 + off]
+            # total *= self.task_before[j0, j1]
+            return None, total - noop, 0
+
+        self.model.constrain_before = Constraint(self.model.dayslots,
+                                                 self.model.intradayslots,
+                                                 self.model.intradayslots,
+                                                 self.model.tasks,
+                                                 self.model.tasks, rule=rule)
+
+        def rule(model, d, i0, i1, j0, j1):
+            """
+            If j0 should be after j1, then numbers[i0] >= numbers[i1]
+            Of course, this only applies to active slots in A.
+            """
+            if self.task_after[j0, j1] == 0:
+                return Constraint.Feasible
+            if i0 >= i1:
+                return Constraint.Feasible
+            off = d * self.num_timeslots / 7
+            num = np.arange(self.num_timeslots / 7)
+
+            A0 = model.A[i0 + off, j0]
+            A1 = model.A[i1 + off, j1]
+            total = A0 * num[i0] - A1 * num[i1]
+
+            # if A[i0,j0] == 0, then force the constraint to be true via noop
+            noop = (1 - A0) * num[i1]
+            # total *= self.task_after[j0, j1]
+            return 0, total + noop, None
+
+        self.model.constrain_after = Constraint(self.model.dayslots,
+                                                self.model.intradayslots,
+                                                self.model.intradayslots,
+                                                self.model.tasks,
+                                                self.model.tasks, rule=rule)
 
     def _constraints_task_spread(self):
         """
@@ -784,6 +918,7 @@ class CalendarSolver:
                 return Constraint.Feasible
             return None, model.D[i, j] - (1 - model.A[i, j]), 0
 
+        # FIXME(cathywu) not enabling this could cause problems later
         # self.model.constrain_switching0 = Constraint(self.model.dtimeslots,
         #                                              self.model.tasks,
         #                                              rule=rule)
@@ -800,6 +935,7 @@ class CalendarSolver:
                 return Constraint.Feasible
             return None, model.D[i, j] - model.A[i + 1, j], 0
 
+        # FIXME(cathywu) not enabling this could cause problems later
         # self.model.constrain_switching1 = Constraint(self.model.dtimeslots,
         #                                              self.model.tasks,
         #                                              rule=rule)
@@ -882,7 +1018,10 @@ class CalendarSolver:
         self._constraints_task_spread()
         self._constraints_category_days()
 
-        self._constraints_switching_bounds()  # instead of chunking constraints
+        # self._constraints_switching_bounds()  # instead of chunking
+        # constraints
+        # FIXME this might be horrendously slow
+        # self._constraints_dependencies()  # de-prioritized
 
         # self._constraints_chunking1m()
         # self._constraints_chunking2m()

@@ -8,7 +8,7 @@ import timealloc.util as util
 
 DAYOFWEEK = re.compile('[A-Z][a-z]*')
 
-TIME_AVAILABLE = 18 * 7  # 168
+TIME_AVAILABLE = 14.5 * 7 # 18 * 7  # 168
 FILTERS_WHEN = ["(first thing)", "(last thing)"]
 FILTERS_DAYS = {"daily, ([\.\d]+)": ['M', 'T', 'W', 'R', 'F', 'Sa', 'Su'],
                 "^[A-Z][A-Za-z]*, ([\.\d]+)": DAYOFWEEK,
@@ -82,9 +82,9 @@ class TaskParser:
                                     ignore = False
                                     for filt, daysofweek in FILTERS_DAYS.items():
                                         m = re.search(filt, datum)
-                                        print("DATUM", datum)
+                                        # print("DATUM", datum)
                                         if m is not None:
-                                            print(m.groups())
+                                            # print(m.groups())
                                             if isinstance(daysofweek,
                                                           type(DAYOFWEEK)):
                                                 self.time_alloc[category][
@@ -132,7 +132,8 @@ class TaskParser:
         # FIXME(cathywu) don't hardcode this?
         category = "Work"
 
-        # TODO(cathywu) change this to find the "Time Alloc" heading and then look at its next list
+        # TODO(cathywu) change this to find the "Work tasks" heading and then
+        # look at its next list
         for top in soup.find_all("ul")[0].children:
             if not isinstance(top, NavigableString):
                 # print('Tag:', top.next)
@@ -140,7 +141,7 @@ class TaskParser:
                 # if tag not in tags:
                 # tags[tag] = {}
                 # tags[tag]['total'] = 0
-                print(task)
+                # print(task)
                 # ipdb.set_trace()
                 if task in ["", "\n"]:
                     continue
@@ -175,9 +176,9 @@ class TaskParser:
                                 ignore = False
                                 for filt, daysofweek in FILTERS_DAYS.items():
                                     m = re.search(filt, datum)
-                                    print("DATUM", datum)
+                                    # print("DATUM", datum)
                                     if m is not None:
-                                        print(m.groups())
+                                        # print(m.groups())
                                         if isinstance(daysofweek,
                                                       type(DAYOFWEEK)):
                                             self.time_alloc[category][label][

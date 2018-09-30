@@ -16,7 +16,7 @@ NUMSLOTS = 24 * 7 * tutil.SLOTS_PER_HOUR
 
 # User specified input files
 # time_allocation_fname = "scratch/time-allocation-2018-09-28-simple.md"
-time_allocation_fname = "scratch/time-allocation-2018-09-27b.md"
+time_allocation_fname = "scratch/time-allocation-2018-09-30.md"
 tasks_fname = "scratch/tasks-2018-09-27b.md"
 
 tasks = TaskParser(time_allocation_fname, tasks_fname)
@@ -43,6 +43,10 @@ task_chunk_max = DEFAULT_CHUNK_MAX * np.ones(num_tasks)
 # Special setup for default tasks (default task for each category)
 task_chunk_min[num_work_tasks:] = 0  # these tasks can be slotted in however
 task_chunk_max[num_work_tasks:] = NUMSLOTS
+
+# num_tasks-by-num_tasks matrices
+before = np.zeros((num_tasks, num_tasks))
+after = np.zeros((num_tasks, num_tasks))
 
 # num_tasks-by-num_categories matrix
 task_category = np.zeros((num_tasks, num_categories))
@@ -86,6 +90,14 @@ for k, cat in enumerate(category_names):
         elif key == "days":
             category_days[:, k], category_days_total[k] = tutil.parse_days(
                 tasks.time_alloc[cat][key])
+        elif key == "before":
+            other_task = tasks.time_alloc[cat][key]
+            other_task_ind = category_names.index(other_task)
+            before[num_work_tasks + k, num_work_tasks + other_task_ind] = 1
+        elif key == "after":
+            other_task = tasks.time_alloc[cat][key]
+            other_task_ind = category_names.index(other_task)
+            after[num_work_tasks + k, num_work_tasks + other_task_ind] = 1
         else:
             print('Not yet handled key ({}) for {}'.format(key, cat))
 
@@ -169,6 +181,8 @@ params = {
     'task_chunk_max': task_chunk_max,
     'task_names': task_names,
     'task_spread': task_spread,
+    'task_before': before,
+    'task_after': after,
 }
 cal = CalendarSolver(utilities, params)
 
