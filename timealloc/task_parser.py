@@ -24,9 +24,9 @@ class TaskParser:
         self.tags = {}
         self.running_total = 0
 
-        # For tasks
-        self.tasks = {}
-        self.running_total_tasks = 0
+        # For other tasks
+        self.other_tasks = {}
+        self.running_total_other_tasks = 0
 
         self.time_allocation_fname = time_alloc_fname
         t_alloc_soup = util.html_from_md(self.time_allocation_fname)
@@ -34,7 +34,12 @@ class TaskParser:
 
         self.tasks_fname = tasks_fname
         tasks_soup = util.html_from_md(self.tasks_fname)
-        self._tasks_from_soup(tasks_soup)
+        self.work_tasks, self.work_tasks_total = self._tasks_from_soup(
+            tasks_soup, heading="Work tasks", category="Work")
+        self.other_tasks, self.other_tasks_total = self._tasks_from_soup(
+            tasks_soup, heading="Other tasks")
+        self.errand_tasks, self.errand_tasks_total = self._tasks_from_soup(
+            tasks_soup, heading="Errand tasks", category="Errand")
 
     def _time_alloc_from_soup(self, soup):
         # TODO(cathywu) change this to find the "Time Alloc" heading and then
@@ -74,42 +79,7 @@ class TaskParser:
                             label, metadata = level3.next.split(": ", 1)
                             label = label.lower()
                             metadatum = metadata.split("; ")
-                            if label == "note":
-                                self.time_alloc[category][label] = {}
-                                self.time_alloc[category][label][
-                                    'constraints'] = []
-                                for datum in metadatum:
-                                    ignore = False
-                                    for filt, daysofweek in FILTERS_DAYS.items():
-                                        m = re.search(filt, datum)
-                                        # print("DATUM", datum)
-                                        if m is not None:
-                                            # print(m.groups())
-                                            if isinstance(daysofweek,
-                                                          type(DAYOFWEEK)):
-                                                self.time_alloc[category][
-                                                    label][
-                                                    "DaysOfWeek"] = daysofweek.findall(
-                                                    datum)
-                                                if len(m.groups()) > 0:
-                                                    self.time_alloc[category][
-                                                        label][
-                                                        "HoursPerDay"] = float(
-                                                        m.group(1))
-                                            else:
-                                                self.time_alloc[category][
-                                                    label][
-                                                    "DaysOfWeek"] = daysofweek
-                                                if len(m.groups()) > 0:
-                                                    self.time_alloc[category][
-                                                        label][
-                                                        "HoursPerDay"] = float(
-                                                        m.group(1))
-                                            ignore = True
-                                    if not ignore:
-                                        self.time_alloc[category][label][
-                                            'constraints'].append(datum)
-                            elif label == "when":
+                            if label == "when":
                                 if label not in self.time_alloc[category]:
                                     self.time_alloc[category][label] = []
                                 self.time_alloc[category][label].append(metadata)
@@ -128,13 +98,14 @@ class TaskParser:
             print("WARNING: time allocation is off ({} != {} hours)".format(
                 self.running_total, TIME_AVAILABLE))
 
-    def _tasks_from_soup(self, soup):
-        # FIXME(cathywu) don't hardcode this?
-        category = "Work"
+    def _tasks_from_soup(self, soup, category=None, heading="Work tasks"):
+        headings = soup.find_all("h2")
+        tasks_dict = {}
+        running_total = 0
 
-        # TODO(cathywu) change this to find the "Work tasks" heading and then
-        # look at its next list
-        for top in soup.find_all("ul")[0].children:
+        h2 = [h2.next for h2 in soup.find_all("h2")].index(heading)
+        tasks_ul = headings[h2].next.next.next
+        for top in tasks_ul.children:
             if not isinstance(top, NavigableString):
                 # print('Tag:', top.next)
                 task = top.next
@@ -156,10 +127,10 @@ class TaskParser:
                     task = m.group(1)
                     total = float(m.group(2))/60  # convert to hours
 
-                if task not in self.tasks:
-                    self.tasks[task] = {}
-                self.tasks[task]['total'] = total
-                self.running_total_tasks += total
+                if task not in tasks_dict:
+                    tasks_dict[task] = {}
+                tasks_dict[task]['total'] = total
+                running_total += total
 
                 if isinstance(top.next.next, NavigableString):
                     continue
@@ -168,46 +139,13 @@ class TaskParser:
                         # print('Metadata:', level3.next)
                         label, metadata = level3.next.split(": ", 1)
                         label = label.lower()
-                        if label == "note":
-                            metadatum = metadata.split("; ")
-                            self.tasks[task][label] = {}
-                            self.tasks[task][label]['constraints'] = []
-                            for datum in metadatum:
-                                ignore = False
-                                for filt, daysofweek in FILTERS_DAYS.items():
-                                    m = re.search(filt, datum)
-                                    # print("DATUM", datum)
-                                    if m is not None:
-                                        # print(m.groups())
-                                        if isinstance(daysofweek,
-                                                      type(DAYOFWEEK)):
-                                            self.time_alloc[category][label][
-                                                "DaysOfWeek"] = daysofweek.findall(
-                                                datum)
-                                            if len(m.groups()) > 0:
-                                                self.time_alloc[category][
-                                                    label][
-                                                    "HoursPerDay"] = float(
-                                                    m.group(1))
-                                        else:
-                                            self.time_alloc[category][label][
-                                                "DaysOfWeek"] = daysofweek
-                                            if len(m.groups()) > 0:
-                                                self.time_alloc[category][
-                                                    label][
-                                                    "HoursPerDay"] = float(
-                                                    m.group(1))
-                                        ignore = True
-                                if not ignore:
-                                    self.tasks[task][label][
-                                        'constraints'].append(datum)
-                        elif label == "when":
-                            if label not in self.tasks[task]:
-                                self.tasks[task][label] = []
-                            self.tasks[task][label].append(metadata)
+                        if label == "when":
+                            if label not in tasks_dict[task]:
+                                tasks_dict[task][label] = []
+                            tasks_dict[task][label].append(metadata)
 
                         else:
-                            self.tasks[task][label] = metadata
+                            tasks_dict[task][label] = metadata
 
                     if isinstance(level3.next.next, NavigableString):
                         # print('Extra:', level2.next.next)
@@ -215,6 +153,11 @@ class TaskParser:
                     for e in level3.children:
                         print('Extra children (not supported):', e)
         # print(json.dumps(self.tasks, indent=4))
-        if self.running_total_tasks != self.time_alloc['Work']['total']:
-            print("WARNING: work allocation is off ({} != {} hours)".format(
-                self.running_total_tasks, self.time_alloc['Work']['total']))
+        if category is not None:
+            if running_total != self.time_alloc[category]['total']:
+                print("WARNING: {} allocation is off ({} != {} hours)".format(
+                    category, running_total,
+                    self.time_alloc[category]['total']))
+
+        return tasks_dict, running_total
+

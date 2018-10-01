@@ -174,9 +174,9 @@ class CalendarSolver:
         """ Objective function to minimize """
 
         def obj_expression(model):
-            return -(model.A_total + model.CTu_total + model.CTl_total +
-                     model.S_total)
-            # return -(model.A_total)
+            # return -(model.A_total + model.CTu_total + model.CTl_total +
+            #          model.S_total)
+            return -(model.A_total)
             # model.A_total + model.CTu / self.slack_cont + model.CTl /
             # self.slack_cont)
             # return -(summation(self.utilities, model.A) + summation(
