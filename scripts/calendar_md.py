@@ -35,10 +35,6 @@ task_names += other_task_names
 task_names += category_names  # use category name as default task name
 num_tasks = num_work_tasks + num_other_tasks + num_categories
 
-print("All task names:")
-for i, task in enumerate(task_names):
-    print(i, task)
-
 # TODO clean up
 task_duration = NUMSLOTS * np.ones(num_tasks)  # initialize task duration as 1 slot
 task_chunk_min = DEFAULT_CHUNK_MIN * np.ones(num_tasks)
@@ -120,10 +116,6 @@ for k, cat in enumerate(category_names):
         else:
             print('Not yet handled key ({}) for {}'.format(key, cat))
 overall_mask[:, -num_categories:] = category_masks
-
-print("Category min/max:")
-print(category_min)
-print(category_max)
 
 # OTHER TASKS
 offset = num_work_tasks
@@ -212,6 +204,14 @@ for i, task in enumerate(tasks.work_tasks.keys()):
                                   dtype=int)
     # print(overall_mask.reshape((7,int(overall_mask.size/7))))
 
+print("All task names:")
+for i, task in enumerate(task_names):
+    print(i, task)
+
+print("Category min/max:")
+print(category_min)
+print(category_max)
+
 print('Chunks min/max:')
 print(task_chunk_min)
 print(task_chunk_max)
@@ -253,21 +253,6 @@ solve_time = time.time() - start_ts
 
 # Display the results
 cal.visualize()
-
 cal.display()
-array1 = np.reshape(
-    [y for (x, y) in cal.instance.A.get_values().items()],
-    (cal.num_timeslots, cal.num_tasks))
-array1 = np.round(array1)
-
-array2 = np.reshape(
-    [y for (x, y) in cal.instance.A2.get_values().items()],
-    (cal.num_timeslots, cal.num_tasks))
-array2 = np.round(array2)
-
-array = array1
-array += array2
-array[1:, :] += array2[:-1, :]
-print("Schedule (timeslot x task):")
-print(array)
+cal.get_diagnostics()
 print('Solve time', solve_time)
