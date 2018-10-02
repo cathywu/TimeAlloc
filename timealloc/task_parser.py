@@ -112,7 +112,6 @@ class TaskParser:
                 # if tag not in tags:
                 # tags[tag] = {}
                 # tags[tag]['total'] = 0
-                # print(task)
                 # ipdb.set_trace()
                 if task in ["", "\n"]:
                     continue

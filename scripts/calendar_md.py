@@ -168,14 +168,14 @@ work_category = category_names.index("Work")
 work_mask = category_masks[:, work_category]
 work_tasks = range(num_work_tasks)
 
-# Assign categories for work tasks
-task_category[work_tasks, work_category] = 1
-
 print("Number of tasks", num_tasks)
 # Task specific time constraints mask
+offset = 0
 for i, task in enumerate(tasks.work_tasks.keys()):
     total = tasks.work_tasks[task]["total"]
     task_duration[i] = tutil.hour_to_ip_slot(total)
+    # toggle work category
+    task_category[offset + i, work_category] = 1
 
     for key in tasks.work_tasks[task]:
         if key == "when":
@@ -183,6 +183,16 @@ for i, task in enumerate(tasks.work_tasks.keys()):
                 sub_mask = tutil.modifier_mask(clause, total)
                 overall_mask[:, i] = np.array(
                     np.logical_and(overall_mask[:, i], sub_mask), dtype=int)
+        elif key == "categories":
+            # other categories
+            categories = tasks.work_tasks[task][key].split(", ")
+            for cat in categories:
+                cat_id = category_names.index(cat)
+                task_category[offset + i, cat_id] = 1
+                category_mask = category_masks[:, cat_id]
+                overall_mask[:, offset + i] = np.array(
+                    np.logical_and(overall_mask[:, offset + i], category_mask),
+                    dtype=int)
         elif key == "chunks":
             chunks = tasks.work_tasks[task][key].split('-')
             task_chunk_min[i] = tutil.hour_to_ip_slot(float(chunks[0]))
@@ -245,8 +255,19 @@ solve_time = time.time() - start_ts
 cal.visualize()
 
 cal.display()
-array = np.reshape([y for (x, y) in cal.instance.A.get_values().items()],
-                   (NUMSLOTS, num_tasks))
+array1 = np.reshape(
+    [y for (x, y) in cal.instance.A.get_values().items()],
+    (cal.num_timeslots, cal.num_tasks))
+array1 = np.round(array1)
+
+array2 = np.reshape(
+    [y for (x, y) in cal.instance.A2.get_values().items()],
+    (cal.num_timeslots, cal.num_tasks))
+array2 = np.round(array2)
+
+array = array1
+array += array2
+array[1:, :] += array2[:-1, :]
 print("Schedule (timeslot x task):")
 print(array)
 print('Solve time', solve_time)
