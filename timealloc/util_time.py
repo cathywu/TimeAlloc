@@ -8,6 +8,7 @@ import numpy as np
 
 # TODO(cathywu) move to config
 SLOTS_PER_HOUR = 2  # each slot represents 15 minutes
+NUMSLOTS = 24 * 7 * SLOTS_PER_HOUR
 WEEKDAYS = {
     'SATURDAY': 0,
     'SUNDAY': 1,
@@ -154,7 +155,7 @@ def datetime_to_slot_mask(time, modifier="before", duration=None):
     return mask
 
 
-def modifier_mask(clause, total):
+def modifier_mask(clause, total=0):
     sub_mask = np.zeros(24 * 7 * SLOTS_PER_HOUR)
     subclauses = clause.split('; ')
     for subclause in subclauses:
@@ -168,6 +169,7 @@ def modifier_mask(clause, total):
                                                 duration=hour_to_ip_slot(total))
             except UnboundLocalError:
                 try:
+                    # FIXME(cathywu) hardcoding
                     dtime = text_to_datetime(attr, weekno=39, year=2018)
                     mask = datetime_to_slot_mask(dtime, modifier=modifier,
                                                  duration=hour_to_ip_slot(total))

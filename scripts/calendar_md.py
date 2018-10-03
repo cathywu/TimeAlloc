@@ -8,11 +8,11 @@ import numpy as np
 from timealloc.calendar_solver import CalendarSolver
 from timealloc.task_parser import TaskParser
 import timealloc.util_time as tutil
+from timealloc.util_time import NUMSLOTS
 
 DEFAULT_CHUNK_MIN = 2  # in IP slot units
 DEFAULT_CHUNK_MAX = 20  # in IP slot units
 MODIFIERS = ['after', 'before', 'at', 'on']
-NUMSLOTS = 24 * 7 * tutil.SLOTS_PER_HOUR
 
 # User specified input files
 # time_allocation_fname = "scratch/time-allocation-2018-09-28-simple.md"
@@ -57,11 +57,19 @@ category_min = np.zeros(num_categories)
 category_max = NUMSLOTS * np.ones(num_categories)
 
 # FIXME(cathywu) have non-uniform utilities
-utilities = np.ones((NUMSLOTS, num_tasks))
+utilities = 0.5 * np.ones((NUMSLOTS, num_tasks))
 # Fewer points for scheduling 'other' tasks
-utilities[:, num_work_tasks:] = 0.5  # TODO parameterize this
+utilities[:, num_work_tasks:] = 0.333  # TODO parameterize this
 # Fewer points for scheduling default tasks
-utilities[:, num_work_tasks+num_other_tasks:] = 0.25  # TODO parameterize this
+utilities[:, num_work_tasks + num_other_tasks:] = 0  # TODO parameterize this
+
+# Completion bonus for fully scheduling tasks
+completion_bonus = 0.5 * np.ones(num_tasks)
+completion_bonus[num_work_tasks:] = 0.333
+completion_bonus[num_work_tasks + num_other_tasks:] = 0
+
+# Cognitive load for each task [-1, 1]
+cognitive_load = np.zeros(num_tasks)
 
 # contiguous (0) or spread (1) scheduling; default is contiguous (0)
 task_spread = np.zeros(num_tasks)
@@ -105,6 +113,8 @@ for k, cat in enumerate(category_names):
         elif key == "days":
             category_days[:, k], category_days_total[k] = tutil.parse_days(
                 tasks.time_alloc[cat][key])
+        elif key == "cognitive load":
+            cognitive_load[offset + k] = float(tasks.time_alloc[cat][key])
         elif key == "before":
             other_task = tasks.time_alloc[cat][key]
             other_task_ind = category_names.index(other_task)
@@ -147,6 +157,12 @@ for i, task in enumerate(other_task_names):
             pass
         elif key == 'spread':
             task_spread[offset+i] = True
+        elif key == "cognitive load":
+            cognitive_load[offset + i] = float(tasks.other_tasks[task][key])
+        elif key == 'completion':
+            if tasks.other_tasks[task][key] == 'off':
+                completion_bonus[offset + i] = 0
+                utilities[:, offset + i] = 0.667
         elif key == 'display name':
             # Use tasks display names if provided
             # TODO(cathywu) Use full task names for eventual gcal events?
@@ -193,6 +209,12 @@ for i, task in enumerate(tasks.work_tasks.keys()):
             pass
         elif key == 'spread':
             task_spread[i] = True
+        elif key == "cognitive load":
+            cognitive_load[offset + i] = float(tasks.work_tasks[task][key])
+        elif key == 'completion':
+            if tasks.work_tasks[task][key] == 'off':
+                completion_bonus[offset + i] = 0
+                utilities[:, offset + i] = 1
         elif key == 'display name':
             # Use tasks display names if provided
             # TODO(cathywu) Use full task names for eventual gcal events?
@@ -240,6 +262,8 @@ params = {
     'task_chunk_max': task_chunk_max,
     'task_names': task_names,
     'task_spread': task_spread,
+    'task_completion_bonus': completion_bonus,
+    'task_cognitive_load': cognitive_load,
     'task_before': before,
     'task_after': after,
 }

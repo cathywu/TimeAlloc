@@ -1,5 +1,3 @@
-import operator
-
 import numpy as np
 
 from bokeh.palettes import d3
@@ -12,12 +10,14 @@ from pyomo.opt import SolverFactory
 
 import timealloc.util as util
 import timealloc.util_time as tutil
+from timealloc.config_affinity import AFFINITY_COGNITIVE
+from timealloc.util_time import NUMSLOTS
 
 # For avoiding rounding issues
 EPS = 1e-2  # epsilon
 
 # Time limit for solver (wallclock)
-TIMELIMIT = 4e2  # 3600, 1e3, 2e2, 50
+TIMELIMIT = 1200  # 3600, 1e3, 2e2, 50
 
 # granularity (in hours) for contiguity variables (larger --> easier problem)
 CONT_STRIDE = 12
@@ -54,6 +54,8 @@ class CalendarSolver:
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
         self.task_chunk_max = params['task_chunk_max']
+        self.task_completion_bonus = params['task_completion_bonus']
+        self.task_cognitive_load = params['task_cognitive_load']
         self.task_before = params['task_before']
         self.task_after = params['task_after']
 
@@ -111,8 +113,7 @@ class CalendarSolver:
         # Total utility of allocation A
         self.model.A_total = Var(domain=pe.Reals)
 
-        # Multi-resolution allocation
-        # FIXME(cathywu) for now, support A"1", A2, A3
+        # Multi-resolution allocation (size 1-4 chunks)
         self.model.A2 = Var(self.model.timeslots * self.model.tasks,
                             domain=pe.Boolean, initialize=0)
         self.model.A2_total = Var(domain=pe.Reals)
@@ -122,6 +123,13 @@ class CalendarSolver:
         self.model.A4 = Var(self.model.timeslots * self.model.tasks,
                             domain=pe.Boolean, initialize=0)
         self.model.A4_total = Var(domain=pe.Reals)
+
+        # Completion bonus
+        self.model.T_total = Var(self.model.tasks, domain=pe.Integers,
+                                 initialize=0)
+        self.model.Completion_total = Var(domain=pe.Reals)
+
+        self.model.Affinity_cognitive_total = Var(domain=pe.Reals)
 
         # Slots within a day
         self.model.intradayslots = RangeSet(0, self.num_timeslots/7-1)  # 7 days
@@ -185,6 +193,8 @@ class CalendarSolver:
         def obj_expression(model):
             total = model.A_total + model.A2_total + model.A3_total + \
                     model.A4_total
+            total += model.Completion_total
+            total += model.Affinity_cognitive_total
             total += model.CTu_total + model.CTl_total + model.S_total
             return -total
 
@@ -309,30 +319,25 @@ class CalendarSolver:
             """
             ind_i = model.timeslots2
             ind_j = model.tasks
+            inv = 1-self.valid
             total = sum(
-                model.A2[i, j] * (1 - self.valid[i + 1, j]) for i in ind_i for j
-                in ind_j)
+                model.A2[i, j] * inv[i + 1, j] for i in ind_i for j in ind_j)
             total += sum(
-                model.A3[i, j] * (1 - self.valid[i + 1, j]) for i in ind_i for j
-                in ind_j)
+                model.A3[i, j] * inv[i + 1, j] for i in ind_i for j in ind_j)
             total += sum(
-                model.A4[i, j] * (1 - self.valid[i + 1, j]) for i in ind_i for j
-                in ind_j)
+                model.A4[i, j] * inv[i + 1, j] for i in ind_i for j in ind_j)
 
             ind_i = model.timeslots3
             ind_j = model.tasks
             total += sum(
-                model.A3[i, j] * (1 - self.valid[i + 2, j]) for i in ind_i for j
-                in ind_j)
+                model.A3[i, j] * inv[i + 2, j] for i in ind_i for j in ind_j)
             total += sum(
-                model.A4[i, j] * (1 - self.valid[i + 2, j]) for i in ind_i for j
-                in ind_j)
+                model.A4[i, j] * inv[i + 2, j] for i in ind_i for j in ind_j)
 
             ind_i = model.timeslots4
             ind_j = model.tasks
             total += sum(
-                model.A4[i, j] * (1 - self.valid[i + 3, j]) for i in ind_i for j
-                in ind_j)
+                model.A4[i, j] * inv[i + 3, j] for i in ind_i for j in ind_j)
 
             return None, total, 0
 
@@ -387,7 +392,21 @@ class CalendarSolver:
             task_j_total += 4 * sum(model.A4[i, j] for i in model.timeslots4)
             return 0, task_j_total, self.task_duration[j]
 
-        self.model.constrain_task_duration = Constraint(self.model.tasks,
+        self.model.constrain_task_duration0 = Constraint(self.model.tasks,
+                                                        rule=rule)
+
+        def rule(model, j):
+            """
+            Task completion variables
+            """
+            task_j_total = sum(model.A[i, j] for i in model.timeslots)
+            task_j_total += 2 * sum(model.A2[i, j] for i in model.timeslots2)
+            task_j_total += 3 * sum(model.A3[i, j] for i in model.timeslots3)
+            task_j_total += 4 * sum(model.A4[i, j] for i in model.timeslots4)
+            task_j_completion = task_j_total / self.task_duration[j]
+            return -1 + EPS, model.T_total[j] - task_j_completion, EPS
+
+        self.model.constrain_task_duration1 = Constraint(self.model.tasks,
                                                         rule=rule)
 
     def _constraints_utility(self):
@@ -418,6 +437,41 @@ class CalendarSolver:
             return model.A4_total == total
 
         self.model.constrain_A4_total = Constraint(rule=rule)
+
+        def rule(model):
+            completion_bonus = self.task_completion_bonus * self.task_duration
+            total = summation(completion_bonus, model.T_total)
+            return model.Completion_total == total
+
+        self.model.constrain_completion_total = Constraint(rule=rule)
+
+        def rule(model):
+            scaling = 0.2
+            affinity = np.outer(AFFINITY_COGNITIVE, self.task_cognitive_load)
+
+            # TODO(cathywu) replace this code when "simple slicing" is clarified
+            zeros1 = np.zeros((1, self.num_tasks))
+            zeros2 = np.zeros((2, self.num_tasks))
+            zeros3 = np.zeros((3, self.num_tasks))
+
+            total = summation(affinity, model.A)
+            total += summation(affinity, model.A2)
+            total += summation(affinity, model.A3)
+            total += summation(affinity, model.A4)
+
+            total += summation(np.vstack((affinity[1:, :], zeros1)), model.A2)
+            total += summation(np.vstack((affinity[1:, :], zeros1)), model.A3)
+            total += summation(np.vstack((affinity[1:, :], zeros1)), model.A4)
+
+            total += summation(np.vstack((affinity[2:, :], zeros2)), model.A3)
+            total += summation(np.vstack((affinity[2:, :], zeros2)), model.A4)
+
+            total += summation(np.vstack((affinity[3:, :], zeros3)), model.A4)
+            total *= scaling
+
+            return model.Affinity_cognitive_total == total
+
+        self.model.constrain_affinity_cognitive_total = Constraint(rule=rule)
 
     def _constraints_category_days(self):
         """
@@ -590,7 +644,7 @@ class CalendarSolver:
 
         def rule(model):
             den = self.num_tasks * slots
-            num = 5
+            num = 20
             weights = np.ones((7, self.num_tasks))
             for j in range(self.num_tasks):
                 weights[:, j] = self.task_spread[j]
@@ -756,12 +810,16 @@ class CalendarSolver:
         self.category_duration_realized = np.array(
             [y for (x, y) in self.instance.C_total.get_values().items()])
 
+        self.affinity = np.outer(AFFINITY_COGNITIVE, self.task_cognitive_load)
+
     def display(self):
         # self.instance.display()  # Displays everything
         self.instance.A_total.display()
         self.instance.A2_total.display()
         self.instance.A3_total.display()
         self.instance.A4_total.display()
+        self.instance.Completion_total.display()
+        self.instance.Affinity_cognitive_total.display()
         self.instance.S_total.display()
         self.instance.CTu_total.display()
         self.instance.CTl_total.display()
@@ -773,16 +831,27 @@ class CalendarSolver:
         print("Task realizations:")
         task_sort_ind = np.argsort(self.task_duration)[::-1]
         for i in task_sort_ind:
-            print('{:2.0f} [{:3.0f}] {} ({})'.format(
-                self.task_duration_realized[i], self.task_duration[i],
-                self.task_names[i], i))
+            if self.task_duration[i] != self.task_duration_realized[i] and \
+                            self.task_duration[i] != NUMSLOTS:
+                print('{:3.0f} [{:3.0f}] {} ({}) INCOMPLETE'.format(
+                    self.task_duration_realized[i], self.task_duration[i],
+                    self.task_names[i], i))
+            else:
+                print('{:3.0f} [{:3.0f}] {} ({})'.format(
+                    self.task_duration_realized[i], self.task_duration[i],
+                    self.task_names[i], i))
         # Display category realizations (ordered by decreasing category_min)
         print("Category realizations:")
         cat_sort_ind = np.argsort(self.category_min)[::-1]
         for i in cat_sort_ind:
-            print('{:2.0f} [{:3.0f}, {:3.0f}] {} ({})'.format(
-                self.category_duration_realized[i], self.category_min[i],
-                self.category_max[i], self.cat_names[i], i))
+            if self.category_min[i] != self.category_duration_realized[i]:
+                print('{:3.0f} [{:3.0f}, {:3.0f}] {} ({}) EXTRA'.format(
+                    self.category_duration_realized[i], self.category_min[i],
+                    self.category_max[i], self.cat_names[i], i))
+            else:
+                print('{:3.0f} [{:3.0f}, {:3.0f}] {} ({})'.format(
+                    self.category_duration_realized[i], self.category_min[i],
+                    self.category_max[i], self.cat_names[i], i))
 
     def visualize(self):
         """
@@ -798,6 +867,10 @@ class CalendarSolver:
         right = left + 0.95
         chunk_min = [self.task_chunk_min[k] for k in tasks]
         chunk_max = [self.task_chunk_max[k] for k in tasks]
+        affinity_cog_task = [self.task_cognitive_load[j] for j in tasks]
+        affinity_cog_slot = [AFFINITY_COGNITIVE[i] for i in times]
+        affinity_cognitive = (np.array(affinity_cog_task) * np.array(
+            affinity_cog_slot)).tolist()
         duration = [self.task_duration[k] for k in tasks]
         task_names = [self.task_names[k] for k in tasks]
         category_ids = [[l for l, j in enumerate(array) if j != 0] for array in
@@ -817,6 +890,9 @@ class CalendarSolver:
             right=right,
             chunk_min=chunk_min,
             chunk_max=chunk_max,
+            affinity_cognitive=affinity_cognitive,
+            affinity_cog_slot=affinity_cog_slot,
+            affinity_cog_task=affinity_cog_task,
             duration=duration,
             task_id=tasks,
             task=task_names,
@@ -829,6 +905,9 @@ class CalendarSolver:
                     ("category", "@category"),
                     ("duration", "@duration"),
                     ("chunk_range", "(@chunk_min, @chunk_max)"),
+                    ("affinity [slot x task]", "@affinity_cognitive = "
+                                               "@affinity_cog_slot x "
+                                               "@affinity_cog_task"),
                     ("(t,l)", "(@top, @left)"),
                     ("index", "$index"),
                     ]
