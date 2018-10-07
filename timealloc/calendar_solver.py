@@ -17,7 +17,7 @@ from timealloc.util_time import NUMSLOTS
 EPS = 1e-2  # epsilon
 
 # Time limit for solver (wallclock)
-TIMELIMIT = 1200  # 3600, 1e3, 2e2, 50
+TIMELIMIT = 500  # 3600, 1e3, 2e2, 50
 
 # granularity (in hours) for contiguity variables (larger --> easier problem)
 CONT_STRIDE = 12
@@ -95,7 +95,10 @@ class CalendarSolver:
         # Create a solver
         # self.opt = SolverFactory('glpk')
         # self.opt = SolverFactory('ipopt')
-        self.opt = SolverFactory('cbc')
+        # self.opt = SolverFactory('mosek')  # not available
+        # self.opt = SolverFactory('cbc')
+        self.opt = SolverFactory('cplex')
+        # self.opt = SolverFactory('gurobi')
         # self.opt.options['tmlim'] = 1000  # glpk
         # self.opt.options['max_iter'] = 10000  # ipopt
         # self.opt.options['timelimit'] = 5
@@ -967,7 +970,8 @@ class CalendarSolver:
             xs.append([x, x])
             ys.append([y0, y1])
 
-        colors_cat = [COLORS_CAT[cat_ids[0] % 20] for cat_ids in category_ids]
+        colors_cat = [COLORS_CAT[cat_ids[0] % len(COLORS_CAT)] for cat_ids in
+                      category_ids]
         source3 = ColumnDataSource(data=dict(
             xs=xs,
             ys=ys,

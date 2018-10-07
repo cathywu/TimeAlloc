@@ -226,6 +226,10 @@ for i, task in enumerate(tasks.work_tasks.keys()):
                                   dtype=int)
     # print(overall_mask.reshape((7,int(overall_mask.size/7))))
 
+# Assert that all tasks have at least 1 category
+assert np.prod(task_category.sum(axis=1)) > 0, "There are tasks without " \
+                                               "categories"
+
 print("All task names:")
 for i, task in enumerate(task_names):
     print(i, task)
