@@ -7,8 +7,11 @@ import time
 import numpy as np
 
 # TODO(cathywu) move to config
-SLOTS_PER_HOUR = 2  # each slot represents 15 minutes
-NUMSLOTS = 24 * 7 * SLOTS_PER_HOUR
+LOOKAHEAD = 7
+SLOTS_PER_HOUR = 2  # each slot represents 30 minutes
+SLOTS_PER_DAY = 24 * SLOTS_PER_HOUR
+SLOTS_PER_WEEK = 7 * SLOTS_PER_DAY
+NUMSLOTS = LOOKAHEAD * SLOTS_PER_DAY
 WEEKDAYS = {
     'SATURDAY': 0,
     'SUNDAY': 1,
@@ -25,6 +28,7 @@ WEEKDAYS = {
     'R': 5,
     'F': 6,
 }
+MODIFIERS = ['after', 'before', 'at', 'on']
 
 
 def hour_to_ip_slot(hour):
@@ -62,7 +66,7 @@ def text_to_datetime(str, weekno, year):
         except ValueError:
             pass
 
-    raise(NotImplementedError, "{} could not be read as datetime".format(s))
+    raise ValueError("{} could not be read as datetime".format(str))
 
 
 def text_to_struct_time(str):
@@ -85,37 +89,37 @@ def text_to_struct_time(str):
         except ValueError:
             pass
 
-    raise (NotImplementedError, "{} could not be read as struct_time".format(s))
+    raise ValueError("{} could not be read as struct_time".format(str))
 
 
 def struct_time_to_slot_mask(time, modifier="before", duration=None):
     """
-    Maps before/after/at XX:YYam/pm to IP slot mask
+    Maps before/after/at XX:YYam/pm to IP slot mask. Applies the mask to each
+    day in the lookahead time slot mask.
 
     :param time:
     :param modifier:
     :param duration: before, after, or at/on
     :return:
     """
-    mask = np.zeros(24*7*SLOTS_PER_HOUR)
-    day_starts = [24*SLOTS_PER_HOUR*i for i in range(7)]
+    mask = np.zeros(NUMSLOTS)
+    day_starts = [SLOTS_PER_DAY*i for i in range(LOOKAHEAD)]
     day_starts.append(mask.size)  # for "after" termination edge case
 
     offset = hour_to_ip_slot(time.tm_hour + time.tm_min/60)
     if modifier == "before":
-        for i in range(7):
+        for i in range(LOOKAHEAD):
             mask[day_starts[i]:day_starts[i]+offset] = 1
     elif modifier == "after":
-        for i in range(7):
+        for i in range(LOOKAHEAD):
             mask[day_starts[i]+offset:day_starts[i+1]] = 1
     elif modifier == "on" or modifier == "at":
         if duration is None:
             raise (ValueError, "Duration not provided")
-        for i in range(7):
+        for i in range(LOOKAHEAD):
             mask[day_starts[i]+offset:day_starts[i]+offset+duration] = 1
     else:
-        raise (
-        NotImplementedError, "Modifier {} not supported".format(modifier))
+        raise ValueError("Modifier {} not supported".format(modifier))
     return mask
 
 
@@ -123,7 +127,7 @@ def date_to_slot_mask(time, modifier="before", duration=None):
     pass
 
 
-def datetime_to_slot_mask(time, modifier="before", duration=None):
+def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
     """
     Maps before/after/on weekday time to IP slot mask
 
@@ -132,31 +136,39 @@ def datetime_to_slot_mask(time, modifier="before", duration=None):
     :param duration:
     :return:
     """
-    mask = np.zeros(24*7*SLOTS_PER_HOUR)
-    day_starts = [24*SLOTS_PER_HOUR*i for i in range(7)]
+    mask = np.zeros(NUMSLOTS)
+    day_starts = [SLOTS_PER_DAY*i for i in range(LOOKAHEAD)]
     day_starts.append(mask.size)  # for "after" termination edge case
 
-    weekday = (time.weekday() + 2) % 7  # Saturday is the week start
+    if start is None:
+        day = (time.weekday() + 2) % 7  # Saturday is the week start
+    else:
+        day = (time-start).days
+        if day > LOOKAHEAD:
+            raise (ValueError, "Cannot support event {} days ahead".format(day))
     offset = hour_to_ip_slot(time.hour + time.minute / 60)
     if modifier == "before":
-        mask[:day_starts[weekday] + offset] = 1
+        mask[:day_starts[day] + offset] = 1
     elif modifier == "after":
-        mask[day_starts[weekday] + offset:] = 1
+        mask[day_starts[day] + offset:] = 1
     elif modifier == "on":
-        mask[day_starts[weekday] + offset:day_starts[weekday + 1]] = 1
+        if day == 7:
+            # FIXME(cathywu) this is a hack
+            day = 0
+        mask[day_starts[day] + offset:day_starts[day + 1]] = 1
     elif modifier == "at":
         if duration is None:
             raise (ValueError, "Duration not provided")
-        mask[day_starts[weekday] + offset:day_starts[
-                                              weekday] + offset + duration] = 1
+        mask[day_starts[day] + offset:day_starts[
+                                              day] + offset + duration] = 1
     else:
         raise (
             NotImplementedError, "Modifier {} not supported".format(modifier))
     return mask
 
 
-def modifier_mask(clause, total=0):
-    sub_mask = np.zeros(24 * 7 * SLOTS_PER_HOUR)
+def modifier_mask(clause, start=None, total=0, weekno=39, year=2018):
+    sub_mask = np.zeros(SLOTS_PER_WEEK)
     subclauses = clause.split('; ')
     for subclause in subclauses:
         modifier, attribute = subclause.split(' ', 1)
@@ -167,12 +179,13 @@ def modifier_mask(clause, total=0):
                 stime = text_to_struct_time(attr)
                 mask = struct_time_to_slot_mask(stime, modifier=modifier,
                                                 duration=hour_to_ip_slot(total))
-            except UnboundLocalError:
+            except ValueError:
                 try:
-                    # FIXME(cathywu) hardcoding
-                    dtime = text_to_datetime(attr, weekno=39, year=2018)
+                    dtime = text_to_datetime(attr, weekno=weekno, year=year)
                     mask = datetime_to_slot_mask(dtime, modifier=modifier,
-                                                 duration=hour_to_ip_slot(total))
+                                                 start=start,
+                                                 duration=hour_to_ip_slot(
+                                                     total))
                 except UnboundLocalError:
                     raise (NotImplementedError,
                            "{} {} not supported".format(modifier, attr))
@@ -181,6 +194,14 @@ def modifier_mask(clause, total=0):
 
 
 def parse_days(string):
+    """
+    Parses strings of the form "M Sa Su R F; 4" into a size-7 binary map and
+    a number of required days.
+    Special strings include "daily".
+
+    :param string:
+    :return:
+    """
     if string == "daily":
         return np.ones(7), 7
     else:

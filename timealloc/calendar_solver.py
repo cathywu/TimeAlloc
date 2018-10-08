@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import numpy as np
 
 from bokeh.palettes import d3
@@ -10,7 +12,7 @@ from pyomo.opt import SolverFactory
 
 import timealloc.util as util
 import timealloc.util_time as tutil
-from timealloc.config_affinity import AFFINITY_COGNITIVE
+import timealloc.config_affinity as c
 from timealloc.util_time import NUMSLOTS
 
 # For avoiding rounding issues
@@ -450,7 +452,7 @@ class CalendarSolver:
 
         def rule(model):
             scaling = 0.2
-            affinity = np.outer(AFFINITY_COGNITIVE, self.task_cognitive_load)
+            affinity = np.outer(c.AFFINITY_COGNITIVE, self.task_cognitive_load)
 
             # TODO(cathywu) replace this code when "simple slicing" is clarified
             zeros1 = np.zeros((1, self.num_tasks))
@@ -813,7 +815,7 @@ class CalendarSolver:
         self.category_duration_realized = np.array(
             [y for (x, y) in self.instance.C_total.get_values().items()])
 
-        self.affinity = np.outer(AFFINITY_COGNITIVE, self.task_cognitive_load)
+        self.affinity = np.outer(c.AFFINITY_COGNITIVE, self.task_cognitive_load)
 
     def display(self):
         # self.instance.display()  # Displays everything
@@ -860,8 +862,18 @@ class CalendarSolver:
         """
         Visualization of calendar tasks, with hover for more details
         """
+
+        # Colors for the tasks and categories
         COLORS = d3['Category20c'][20] + d3['Category20b'][20]
         COLORS_CAT = d3['Category20'][20]
+
+        # Date range for the figure title
+        start_str = c.START.strftime("%A %m/%d/%y")
+        end_str = c.END.strftime("%A %m/%d/%y")
+
+        # Day of week range for the x axis
+        start_weekday_str = c.START.strftime("%a")
+        end_weekday_str = c.END.strftime("%a")
 
         times, tasks = self.array.nonzero()
         bottom = (times % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
@@ -871,7 +883,7 @@ class CalendarSolver:
         chunk_min = [self.task_chunk_min[k] for k in tasks]
         chunk_max = [self.task_chunk_max[k] for k in tasks]
         affinity_cog_task = [self.task_cognitive_load[j] for j in tasks]
-        affinity_cog_slot = [AFFINITY_COGNITIVE[i] for i in times]
+        affinity_cog_slot = [c.AFFINITY_COGNITIVE[i] for i in times]
         affinity_cognitive = (np.array(affinity_cog_task) * np.array(
             affinity_cog_slot)).tolist()
         duration = [self.task_duration[k] for k in tasks]
@@ -917,15 +929,18 @@ class CalendarSolver:
 
         # [Bokeh] inverted axis range example:
         # https://groups.google.com/a/continuum.io/forum/#!topic/bokeh/CJAvppgQmKo
-        yr = Range1d(start=24.5, end=-0.5)
+        yr = Range1d(start=22, end=5.25)
+        # yr = Range1d(start=24.5, end=-0.5)
         xr = Range1d(start=-0.5, end=7.5)
-        p = figure(plot_width=800, plot_height=800, y_range=yr, x_range=xr,
-                   tooltips=TOOLTIPS, title="Calendar")
+        p = figure(plot_width=800, plot_height=600, y_range=yr, x_range=xr,
+                   tooltips=TOOLTIPS,
+                   title="Calendar: {} to {}".format(start_str, end_str))
         self.p = p
         output_file("calendar.html")
 
-        p.xaxis[0].axis_label = 'Weekday (Sun-Fri)'
-        p.yaxis[0].axis_label = 'Hour (12AM-12AM)'
+        p.xaxis[0].axis_label = 'Weekday ({}-{})'.format(start_weekday_str,
+                                                         end_weekday_str)
+        p.yaxis[0].axis_label = 'Hour (6:30AM-9:30PM)'
 
         # Replace default yaxis so that each hour is displayed
         p.yaxis[0].ticker.desired_num_ticks = 24
@@ -949,7 +964,8 @@ class CalendarSolver:
                 task_display.append(name)
         source2 = ColumnDataSource(data=dict(
             x=left,
-            y=top,  # abbreviated version of task
+            y=top,
+            # abbreviated version of task
             task=[k[:17] for k in task_display],
         ))
 
@@ -979,5 +995,19 @@ class CalendarSolver:
         ))
         p.multi_line(xs='xs', ys='ys', color='colors', line_width=4,
                      source=source3)
+
+        # Annotate columns with day of the week
+        source4 = ColumnDataSource(data=dict(
+            x=[k + 0.1 for k in range(tutil.LOOKAHEAD)],
+            y=[5.95 for _ in range(tutil.LOOKAHEAD)],
+            weekday=[(c.START + timedelta(k)).strftime("%A") for k in
+                     range(tutil.LOOKAHEAD)],
+        ))
+
+        # Annotate rectangles with task name
+        labels2 = LabelSet(x='x', y='y', text='weekday', level='glyph',
+                           x_offset=3, y_offset=-1, source=source4,
+                           text_font_size='10pt', render_mode='canvas')
+        p.add_layout(labels2)
 
         show(p)
