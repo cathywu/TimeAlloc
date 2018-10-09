@@ -188,6 +188,10 @@ class Tasks:
                         float(chunks[-1]))
                 elif key == "total":
                     pass
+                elif key == 'important':
+                    self.utilities[:, offset + i] += 3
+                elif key == 'urgent':
+                    self.utilities[:, offset + i] += 10
                 elif key == 'spread':
                     self.task_spread[offset + i] = True
                 elif key == "cognitive load":
@@ -251,6 +255,10 @@ class Tasks:
                         float(chunks[-1]))
                 elif key == "total":
                     pass
+                elif key == 'important':
+                    self.utilities[:, offset + i] += 3
+                elif key == 'urgent':
+                    self.utilities[:, offset + i] += 10
                 elif key == 'spread':
                     self.task_spread[i] = True
                 elif key == "cognitive load":

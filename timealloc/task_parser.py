@@ -34,8 +34,38 @@ class TaskParser:
 
         self.tasks_fname = tasks_fname
         tasks_soup = util.html_from_md(self.tasks_fname)
-        self.work_tasks, self.work_tasks_total = self._tasks_from_soup(
-            tasks_soup, heading="Work tasks", category="Work")
+
+        # important and urgent tasks
+        work_tasks0, work_tasks_total0 = self._tasks_from_soup(
+            tasks_soup, heading="Work: Important and urgent", category="Work")
+        work_tasks0 = self._tag_important(work_tasks0)
+        work_tasks0 = self._tag_urgent(work_tasks0)
+
+        # important and not urgent tasks
+        work_tasks1, work_tasks_total1 = self._tasks_from_soup(
+            tasks_soup, heading="Work: Important and not urgent",
+            category="Work")
+        work_tasks1 = self._tag_important(work_tasks1)
+
+        # not important and urgent tasks
+        work_tasks2, work_tasks_total2 = self._tasks_from_soup(
+            tasks_soup, heading="Work: Not important and urgent",
+            category="Work")
+        work_tasks2 = self._tag_urgent(work_tasks2)
+
+        # not important and not urgent tasks
+        work_tasks3, work_tasks_total3 = self._tasks_from_soup(
+            tasks_soup, heading="Work: other",
+            category="Work")
+
+        # merge tasks into a single set of work tasks
+        self.work_tasks = self._merge_tasks((work_tasks0, work_tasks1,
+                                             work_tasks2, work_tasks3))
+        self.work_tasks_total = work_tasks_total0 + work_tasks_total1 + \
+                                work_tasks_total2 + work_tasks_total3
+
+        # load any unlabeled work tasks?
+        # load non-work tasks
         self.other_tasks, self.other_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Other tasks")
         self.errand_tasks, self.errand_tasks_total = self._tasks_from_soup(
@@ -154,9 +184,29 @@ class TaskParser:
         # print(json.dumps(self.tasks, indent=4))
         if category is not None:
             if running_total != self.time_alloc[category]['total']:
-                print("WARNING: {} allocation is off ({} != {} hours)".format(
-                    category, running_total,
+                print("WARNING({}): {} allocation is off ({} != {} "
+                      "hours)".format(heading, category, running_total,
                     self.time_alloc[category]['total']))
 
         return tasks_dict, running_total
+
+    @staticmethod
+    def _tag_important(tasks):
+        for key in tasks.keys():
+            tasks[key]["important"] = True
+        return tasks
+
+    @staticmethod
+    def _tag_urgent(tasks):
+        for key in tasks.keys():
+            tasks[key]["urgent"] = True
+        return tasks
+
+    @staticmethod
+    def _merge_tasks(listoftasks):
+        overall_tasks = {}
+        for tasks in listoftasks:
+            for k, v in tasks.items():
+                overall_tasks[k] = v
+        return overall_tasks
 
