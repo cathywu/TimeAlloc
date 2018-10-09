@@ -255,6 +255,13 @@ class Tasks:
                         float(chunks[-1]))
                 elif key == "total":
                     pass
+                elif key == 'soon':
+                    for k in range(tutil.LOOKAHEAD):
+                        weight = 0.5 / tutil.LOOKAHEAD
+                        start = k*tutil.SLOTS_PER_DAY
+                        end = (k+1)*tutil.SLOTS_PER_DAY
+                        self.utilities[start:end, offset + i] += weight * (
+                            tutil.LOOKAHEAD - k)
                 elif key == 'important':
                     self.utilities[:, offset + i] += 3
                 elif key == 'urgent':

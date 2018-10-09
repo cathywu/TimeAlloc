@@ -834,17 +834,22 @@ class CalendarSolver:
     def get_diagnostics(self):
         # Display task realizations (ordered by decreasing task_duration)
         print("Task realizations:")
-        task_sort_ind = np.argsort(self.task_duration)[::-1]
+        print("Format: hours assigned [utility] [duration] Task name (task id)")
+        # sort by task duration
+        # task_sort_ind = np.argsort(self.task_duration)[::-1]
+        # sort by average task utility
+        avg_utility = self.utilities.mean(axis=0)
+        task_sort_ind = np.argsort(avg_utility)[::-1]
         for i in task_sort_ind:
             if self.task_duration[i] != self.task_duration_realized[i] and \
                             self.task_duration[i] != NUMSLOTS:
-                print('{:3.0f} [{:3.0f}] {} ({}) INCOMPLETE'.format(
-                    self.task_duration_realized[i], self.task_duration[i],
-                    self.task_names[i], i))
+                print('{:3.0f} [{:3.1f}] [{:3.0f}] {} ({}) INCOMPLETE'.format(
+                    self.task_duration_realized[i], avg_utility[i],
+                    self.task_duration[i], self.task_names[i], i))
             else:
-                print('{:3.0f} [{:3.0f}] {} ({})'.format(
-                    self.task_duration_realized[i], self.task_duration[i],
-                    self.task_names[i], i))
+                print('{:3.0f} [{:3.1f}] [{:3.0f}] {} ({})'.format(
+                    self.task_duration_realized[i], avg_utility[i],
+                    self.task_duration[i], self.task_names[i], i))
         # Display category realizations (ordered by decreasing category_min)
         print("Category realizations:")
         cat_sort_ind = np.argsort(self.category_min)[::-1]
