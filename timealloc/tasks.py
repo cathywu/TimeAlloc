@@ -172,7 +172,7 @@ class Tasks:
                             np.logical_and(self.overall_mask[:, offset + i],
                                            sub_mask), dtype=int)
                 elif key == "categories":
-                    categories = self.tasks.other_tasks[task][key].split(", ")
+                    categories = self.tasks.other_tasks[task][key]
                     for cat in categories:
                         cat_id = self.category_names.index(cat)
                         self.task_category[offset + i, cat_id] = 1
@@ -239,7 +239,7 @@ class Tasks:
                             dtype=int)
                 elif key == "categories":
                     # other categories
-                    categories = self.tasks.work_tasks[task][key].split(", ")
+                    categories = self.tasks.work_tasks[task][key]
                     for cat in categories:
                         cat_id = self.category_names.index(cat)
                         self.task_category[offset + i, cat_id] = 1

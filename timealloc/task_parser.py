@@ -1,7 +1,6 @@
 from bs4 import NavigableString
 import json
 
-import ipdb
 import re
 
 import timealloc.util as util
@@ -61,15 +60,22 @@ class TaskParser:
         # merge tasks into a single set of work tasks
         self.work_tasks = self._merge_tasks((work_tasks0, work_tasks1,
                                              work_tasks2, work_tasks3))
+        self.work_tasks = self._add_category(self.work_tasks, "Work")
         self.work_tasks_total = work_tasks_total0 + work_tasks_total1 + \
                                 work_tasks_total2 + work_tasks_total3
 
         # load any unlabeled work tasks?
         # load non-work tasks
-        self.other_tasks, self.other_tasks_total = self._tasks_from_soup(
+        other_tasks, other_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Other tasks")
-        self.errand_tasks, self.errand_tasks_total = self._tasks_from_soup(
+        errand_tasks, errand_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Errand tasks", category="Errand")
+        errand_tasks = self._add_category(errand_tasks, "Errand")
+        persistent_tasks, persistent_tasks_total = self._tasks_from_soup(
+            tasks_soup, heading="Persistent tasks")
+        # merge tasks into a single set of other tasks
+        self.other_tasks = self._merge_tasks((other_tasks, errand_tasks,
+                                             persistent_tasks))
 
     def _time_alloc_from_soup(self, soup):
         # TODO(cathywu) change this to find the "Time Alloc" heading and then
@@ -172,7 +178,11 @@ class TaskParser:
                             if label not in tasks_dict[task]:
                                 tasks_dict[task][label] = []
                             tasks_dict[task][label].append(metadata)
-
+                        elif label == "categories":
+                            if label not in tasks_dict[task]:
+                                tasks_dict[task][label] = []
+                            categories = metadata.split(", ")
+                            tasks_dict[task][label].extend(categories)
                         else:
                             tasks_dict[task][label] = metadata
 
@@ -210,3 +220,10 @@ class TaskParser:
                 overall_tasks[k] = v
         return overall_tasks
 
+    @staticmethod
+    def _add_category(tasks, category):
+        for key in tasks.keys():
+            if "categories" not in tasks[key]:
+                tasks[key]["categories"] = []
+            tasks[key]["categories"].append(category)
+        return tasks

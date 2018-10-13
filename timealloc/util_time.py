@@ -144,8 +144,8 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
         day = (time.weekday() + 2) % 7  # Saturday is the week start
     else:
         day = (time-start).days
-        if day > LOOKAHEAD:
-            raise (ValueError, "Cannot support event {} days ahead".format(day))
+        if day > LOOKAHEAD or day < 0:
+            raise IOError("Cannot support event {} days ahead".format(day))
     offset = hour_to_ip_slot(time.hour + time.minute / 60)
     if modifier == "before":
         mask[:day_starts[day] + offset] = 1
@@ -158,7 +158,7 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
         mask[day_starts[day] + offset:day_starts[day + 1]] = 1
     elif modifier == "at":
         if duration is None:
-            raise (ValueError, "Duration not provided")
+            raise IOError("Duration not provided")
         mask[day_starts[day] + offset:day_starts[
                                               day] + offset + duration] = 1
     else:
@@ -167,13 +167,15 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
     return mask
 
 
-def modifier_mask(clause, start=None, total=0, weekno=39, year=2018):
+def modifier_mask(clause, start=None, total=0, weekno=None, year=None):
     sub_mask = np.zeros(SLOTS_PER_WEEK)
     subclauses = clause.split('; ')
     for subclause in subclauses:
         modifier, attribute = subclause.split(' ', 1)
         attributes = attribute.split(', ')
         for attr in attributes:
+            # FIXME(cathywu) the following needs refactoring. It's a mess and
+            # error-prone.
             # print(task, key, attr)
             try:
                 stime = text_to_struct_time(attr)
@@ -186,9 +188,21 @@ def modifier_mask(clause, start=None, total=0, weekno=39, year=2018):
                                                  start=start,
                                                  duration=hour_to_ip_slot(
                                                      total))
-                except UnboundLocalError:
-                    raise (NotImplementedError,
-                           "{} {} not supported".format(modifier, attr))
+                except (IOError, OSError, TypeError, ValueError):
+                    try:
+                        # Use the next week if the selected datetime actually
+                        # corresponds to the past.
+                        # TODO(cathywu) There should be a better solution to
+                        # this
+                        dtime = text_to_datetime(attr, weekno=weekno + 1,
+                                                 year=year)
+                        mask = datetime_to_slot_mask(dtime, modifier=modifier,
+                                                     start=start,
+                                                     duration=hour_to_ip_slot(
+                                                         total))
+                    except IOError:
+                        raise IOError("{} {} not supported".format(modifier,
+                                                                   attr))
             sub_mask = np.logical_or(sub_mask, mask)
     return sub_mask
 
