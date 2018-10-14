@@ -95,7 +95,9 @@ class Tasks:
         self.category_days = np.zeros((7, self.num_categories))
         # by default, each category is required on 0 days
         self.category_days_total = np.zeros(self.num_categories)
-        
+        # by default, no caps on how much each category can be assigned per day
+        self.category_daily_caps = -1 * np.ones(self.num_categories)
+
         # Task specific time constraints mask
         # Assume first num_work_tasks entries are for work entries
         self.overall_mask = np.ones((NUMSLOTS, self.num_tasks))
@@ -148,6 +150,9 @@ class Tasks:
                     other_task = self.tasks.time_alloc[cat][key]
                     other_task_ind = self.category_names.index(other_task)
                     self.after[offset + k, offset + other_task_ind] = 1
+                elif key == "daily max":
+                    cap = float(self.tasks.time_alloc[cat][key])
+                    self.category_daily_caps[k] = cap * tutil.SLOTS_PER_HOUR
                 else:
                     print('Not yet handled key ({}) for {}'.format(key, cat))
         self.overall_mask[:, -self.num_categories:] = self.category_masks
@@ -315,6 +320,7 @@ class Tasks:
             'category_max': self.category_max,
             'category_days': self.category_days_lookahead,  # e.g. M T W Sa Su
             'category_total': self.category_days_total,  # e.g. 3 of 5 days
+            'category_daily_caps': self.category_daily_caps,
             'task_category': self.task_category,
             'num_tasks': self.num_tasks,
             'task_duration': self.task_duration,

@@ -52,6 +52,7 @@ class CalendarSolver:
         self.category_max = params['category_max']
         self.category_days = params['category_days']
         self.category_days_total = params['category_total']
+        self.category_daily_caps = params['category_daily_caps']
         self.valid = params['task_valid']
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
@@ -735,6 +736,29 @@ class CalendarSolver:
 
         self.model.constrain_contiguity_lt = Constraint(rule=rule)
 
+    def _constraints_category_daily_caps(self):
+
+        incr = 24 * tutil.SLOTS_PER_HOUR
+        diag = util.blockdiag(self.num_timeslots, incr=incr)
+
+        def rule(model, p, k):
+            """
+            Impose category caps by summing up the number of tasks of that
+            category assigned for each day and limiting the sum.
+            """
+            if self.category_daily_caps[k] < 0:
+                return Constraint.Feasible
+            ind_i = model.timeslots
+            ind_j = model.tasks
+            total = sum(diag[p, i] * self.task_category[j, k] * (
+                model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
+                model.A4[i, j]) for i in ind_i for j in ind_j)
+            return None, total, self.category_daily_caps[k]
+
+        self.model.constrain_cat_daily0 = Constraint(self.model.dayslots,
+                                                     self.model.categories,
+                                                     rule=rule)
+
     def _construct_ip(self):
         """
         Aggregates MIP construction
@@ -756,6 +780,7 @@ class CalendarSolver:
         self._constraints_task_spread()
         self._constraints_category_days()
         self._constraints_task_chunks()  # imposes chunk bounds
+        self._constraints_category_daily_caps()
 
         # FIXME this might be horrendously slow
         # self._constraints_dependencies()  # de-prioritized
