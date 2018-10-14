@@ -381,6 +381,12 @@ class CalendarSolver:
         """
 
         def rule(model, k):
+            if self.category_min[k] <= 0 and self.category_max[k] >= NUMSLOTS:
+                return Constraint.Feasible
+            elif self.category_min[k] <= 0:
+                return None, model.C_total[k], self.category_max[k]
+            elif self.category_max[k] >= NUMSLOTS:
+                return self.category_min[k], model.C_total[k], None
             return self.category_min[k], model.C_total[k], self.category_max[k]
 
         self.model.constrain_cat_duration1 = Constraint(self.model.categories,
@@ -396,10 +402,10 @@ class CalendarSolver:
             task_j_total += 2 * sum(model.A2[i, j] for i in model.timeslots2)
             task_j_total += 3 * sum(model.A3[i, j] for i in model.timeslots3)
             task_j_total += 4 * sum(model.A4[i, j] for i in model.timeslots4)
-            return 0, task_j_total, self.task_duration[j]
+            return None, task_j_total, self.task_duration[j]
 
         self.model.constrain_task_duration0 = Constraint(self.model.tasks,
-                                                        rule=rule)
+                                                         rule=rule)
 
         def rule(model, j):
             """
@@ -492,6 +498,8 @@ class CalendarSolver:
             More precisely:
             S_cat[s,k] >= cat_days[s, k]
             """
+            if self.category_days[s, k] <= 0:
+                return Constraint.Feasible
             return self.category_days[s, k], model.S_cat[s, k], None
 
         self.model.constrain_cat_days2 = Constraint(self.model.dayslots,
@@ -505,6 +513,8 @@ class CalendarSolver:
             More precisely:
             sum_s S_cat[s,k] = S_cat_total[k] >= cat_days[k]
             """
+            if self.category_days_total[k] <= 0:
+                return Constraint.Feasible
             return self.category_days_total[k], model.S_cat_total[k], None
 
         self.model.constrain_cat_days3 = Constraint(self.model.categories,
