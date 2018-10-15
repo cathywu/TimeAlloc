@@ -84,9 +84,13 @@ class Tasks:
         self.completion_bonus[self.num_work_tasks:] = 0.333
         self.completion_bonus[self.num_work_tasks + self.num_other_tasks:] = 0
         
-        # Cognitive load for each task [-1, 1]
+        # Cognitive load for each task [-1, 1] (per task?)
         self.cognitive_load = np.zeros(self.num_tasks)
-        
+        # Willpower load for each task [-1, 1] (per time [hour])
+        self.willpower_load = np.zeros(self.num_tasks)
+        # Willpower load defaults for each category [-1, 1]
+        self.cat_willpower_load = np.zeros(self.num_categories)
+
         # contiguous (0) or spread (1) scheduling; default is contiguous (0)
         self.task_spread = np.zeros(self.num_tasks)
         # by default, categories are allowed to be assigned on any timeslots
@@ -142,6 +146,11 @@ class Tasks:
                 elif key == "cognitive load":
                     self.cognitive_load[offset + k] = float(
                         self.tasks.time_alloc[cat][key])
+                elif key == "willpower load":
+                    self.cat_willpower_load[k] = float(
+                        self.tasks.time_alloc[cat][key])
+                    self.willpower_load[offset + k] = float(
+                        self.tasks.time_alloc[cat][key])
                 elif key == "before":
                     other_task = self.tasks.time_alloc[cat][key]
                     other_task_ind = self.category_names.index(other_task)
@@ -178,6 +187,7 @@ class Tasks:
                                            sub_mask), dtype=int)
                 elif key == "categories":
                     categories = self.tasks.other_tasks[task][key]
+                    willpower = 0
                     for cat in categories:
                         cat_id = self.category_names.index(cat)
                         self.task_category[offset + i, cat_id] = 1
@@ -185,6 +195,10 @@ class Tasks:
                         self.overall_mask[:, offset + i] = np.array(
                             np.logical_and(self.overall_mask[:, offset + i],
                                            category_mask), dtype=int)
+                        willpower += self.cat_willpower_load[cat_id]
+                    # Don't overwrite task-specific (non-zero) willpower
+                    if self.willpower_load[offset + i] == 0:
+                        self.willpower_load[offset + i] = willpower
                 elif key == "chunks":
                     chunks = self.tasks.other_tasks[task][key].split('-')
                     self.task_chunk_min[offset + i] = tutil.hour_to_ip_slot(
@@ -202,6 +216,9 @@ class Tasks:
                 elif key == "cognitive load":
                     self.cognitive_load[offset + i] = float(
                         self.tasks.other_tasks[task][key])
+                elif key == "willpower load":
+                    self.willpower_load[offset + i] = float(
+                        self.tasks.other_tasks[task][key])
                 elif key == 'completion':
                     if self.tasks.other_tasks[task][key] == 'off':
                         self.completion_bonus[offset + i] = 0
@@ -217,7 +234,6 @@ class Tasks:
     def _read_work_task_attributes(self):
         """
         WORK TASKS
-        Working hours
         """
         work_category = self.category_names.index("Work")
         work_mask = self.category_masks[:, work_category]
@@ -245,6 +261,7 @@ class Tasks:
                 elif key == "categories":
                     # other categories
                     categories = self.tasks.work_tasks[task][key]
+                    willpower = 0
                     for cat in categories:
                         cat_id = self.category_names.index(cat)
                         self.task_category[offset + i, cat_id] = 1
@@ -252,6 +269,11 @@ class Tasks:
                         self.overall_mask[:, offset + i] = np.array(
                             np.logical_and(self.overall_mask[:, offset + i],
                                            category_mask), dtype=int)
+                        # Willpower is assumed to be additive across categories
+                        willpower += self.cat_willpower_load[cat_id]
+                    # Don't overwrite task-specific (non-zero) willpower
+                    if self.willpower_load[offset + i] == 0:
+                        self.willpower_load[offset + i] = willpower
                 elif key == "chunks":
                     chunks = self.tasks.work_tasks[task][key].split('-')
                     self.task_chunk_min[i] = tutil.hour_to_ip_slot(
@@ -275,6 +297,9 @@ class Tasks:
                     self.task_spread[i] = True
                 elif key == "cognitive load":
                     self.cognitive_load[offset + i] = float(
+                        self.tasks.work_tasks[task][key])
+                elif key == "willpower load":
+                    self.willpower_load[offset + i] = float(
                         self.tasks.work_tasks[task][key])
                 elif key == 'completion':
                     if self.tasks.work_tasks[task][key] == 'off':
@@ -331,6 +356,7 @@ class Tasks:
             'task_spread': self.task_spread,
             'task_completion_bonus': self.completion_bonus,
             'task_cognitive_load': self.cognitive_load,
+            'task_willpower_load': self.willpower_load,
             'task_before': self.before,
             'task_after': self.after,
         }

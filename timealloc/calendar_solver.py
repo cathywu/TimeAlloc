@@ -59,6 +59,7 @@ class CalendarSolver:
         self.task_chunk_max = params['task_chunk_max']
         self.task_completion_bonus = params['task_completion_bonus']
         self.task_cognitive_load = params['task_cognitive_load']
+        self.task_willpower_load = params['task_willpower_load']
         self.task_before = params['task_before']
         self.task_after = params['task_after']
 
@@ -398,6 +399,8 @@ class CalendarSolver:
         """
 
         def rule(model, j):
+            if self.task_duration[j] >= NUMSLOTS:
+                return Constraint.Feasible
             task_j_total = sum(model.A[i, j] for i in model.timeslots)
             task_j_total += 2 * sum(model.A2[i, j] for i in model.timeslots2)
             task_j_total += 3 * sum(model.A3[i, j] for i in model.timeslots3)
@@ -411,6 +414,8 @@ class CalendarSolver:
             """
             Task completion variables
             """
+            if self.task_duration[j] >= NUMSLOTS:
+                return model.T_total[j] == 0
             task_j_total = sum(model.A[i, j] for i in model.timeslots)
             task_j_total += 2 * sum(model.A2[i, j] for i in model.timeslots2)
             task_j_total += 3 * sum(model.A3[i, j] for i in model.timeslots3)
@@ -631,8 +636,7 @@ class CalendarSolver:
         reward the number of days that a task is scheduled.
         """
         # encourage scheduling a chunk for every 24 hours
-        incr = 24 * tutil.SLOTS_PER_HOUR
-        diag = util.blockdiag(self.num_timeslots, incr=incr)
+        diag = util.blockdiag(self.num_timeslots, incr=tutil.SLOTS_PER_DAY)
         slots = diag.shape[0]
 
         def rule(model, p, j):
@@ -748,8 +752,7 @@ class CalendarSolver:
 
     def _constraints_category_daily_caps(self):
 
-        incr = 24 * tutil.SLOTS_PER_HOUR
-        diag = util.blockdiag(self.num_timeslots, incr=incr)
+        diag = util.blockdiag(self.num_timeslots, incr=tutil.SLOTS_PER_DAY)
 
         def rule(model, p, k):
             """
@@ -768,6 +771,24 @@ class CalendarSolver:
         self.model.constrain_cat_daily0 = Constraint(self.model.dayslots,
                                                      self.model.categories,
                                                      rule=rule)
+
+    def _constraints_willpower(self):
+
+        def rule(model):
+            """
+            Avoid willpower depletion.
+            Impose that the willpower expended over the week is non-positive.
+
+            slot * task assigned * duration * willpower scaling
+            """
+            ind_i = model.timeslots
+            ind_j = model.tasks
+            total = sum(self.task_willpower_load[j] * (
+                model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
+                model.A4[i, j]) for i in ind_i for j in ind_j)
+            return None, total, 0
+
+        self.model.constrain_willpower0 = Constraint(rule=rule)
 
     def _construct_ip(self):
         """
@@ -791,6 +812,7 @@ class CalendarSolver:
         self._constraints_category_days()
         self._constraints_task_chunks()  # imposes chunk bounds
         self._constraints_category_daily_caps()
+        self._constraints_willpower()
 
         # FIXME this might be horrendously slow
         # self._constraints_dependencies()  # de-prioritized
@@ -850,7 +872,19 @@ class CalendarSolver:
         self.category_duration_realized = np.array(
             [y for (x, y) in self.instance.C_total.get_values().items()])
 
+        # Willpower balance and cognitive affinity per day
+        diag = util.blockdiag(self.num_timeslots, incr=tutil.SLOTS_PER_DAY)
+        self.day_willpower = np.zeros(tutil.LOOKAHEAD)
+
         self.affinity = np.outer(c.AFFINITY_COGNITIVE, self.task_cognitive_load)
+        affinity_realized = self.affinity * self.array  # num_slots x num_tasks
+        self.day_cognitive = diag.dot(affinity_realized).sum(axis=1)
+
+        for p in range(tutil.LOOKAHEAD):
+            for j in range(self.num_tasks):
+                # duration of task j on day p
+                duration = sum(diag[p, :] * self.array[:, j])
+                self.day_willpower[p] += duration * self.task_willpower_load[j]
 
     def display(self):
         # self.instance.display()  # Displays everything
@@ -865,6 +899,7 @@ class CalendarSolver:
         self.instance.CTl_total.display()
         self.instance.S_cat_total.display()
         self.instance.C_total.display()
+        self.instance.constrain_willpower0.display()
 
     def get_diagnostics(self):
         # Display task realizations (ordered by decreasing task_duration)
@@ -897,6 +932,12 @@ class CalendarSolver:
                 print('{:3.0f} [{:3.0f}, {:3.0f}] {} ({})'.format(
                     self.category_duration_realized[i], self.category_min[i],
                     self.category_max[i], self.cat_names[i], i))
+        # Computes willpower balance per day
+        np.set_printoptions(precision=3, suppress=True)
+        print("Cognitive affinity per day (higher is better)")
+        print(self.day_cognitive)
+        print("Willpower balance per day (lower is better)")
+        print(self.day_willpower)
 
     def visualize(self):
         """
@@ -920,14 +961,16 @@ class CalendarSolver:
         top = bottom + (0.95 / tutil.SLOTS_PER_HOUR)
         left = np.floor(times / (24 * tutil.SLOTS_PER_HOUR))
         right = left + 0.95
-        chunk_min = [self.task_chunk_min[k] for k in tasks]
-        chunk_max = [self.task_chunk_max[k] for k in tasks]
+        chunk_min = [self.task_chunk_min[j] for j in tasks]
+        chunk_max = [self.task_chunk_max[j] for j in tasks]
         affinity_cog_task = [self.task_cognitive_load[j] for j in tasks]
         affinity_cog_slot = [c.AFFINITY_COGNITIVE[i] for i in times]
         affinity_cognitive = (np.array(affinity_cog_task) * np.array(
             affinity_cog_slot)).tolist()
-        duration = [self.task_duration[k] for k in tasks]
-        task_names = [self.task_names[k] for k in tasks]
+        willpower_task = [self.task_willpower_load[j] for j in tasks]
+        duration = [self.task_duration[j] for j in tasks]
+        duration_realized = [self.task_duration_realized[j] for j in tasks]
+        task_names = [self.task_names[j] for j in tasks]
         category_ids = [[l for l, j in enumerate(array) if j != 0] for array in
                         [self.task_category[j, :] for j in tasks]]
         category = [", ".join(
@@ -948,7 +991,9 @@ class CalendarSolver:
             affinity_cognitive=affinity_cognitive,
             affinity_cog_slot=affinity_cog_slot,
             affinity_cog_task=affinity_cog_task,
+            willpower_task=willpower_task,
             duration=duration,
+            duration_realized=duration_realized,
             task_id=tasks,
             task=task_names,
             category=category,
@@ -956,15 +1001,16 @@ class CalendarSolver:
         ))
 
         TOOLTIPS = [("task", "@task"),
-                    ("desc", "@task_id"),
                     ("category", "@category"),
-                    ("duration", "@duration"),
+                    ("duration", "@duration_realized / @duration"),
+                    ("willpower", "@willpower_task"),
                     ("chunk_range", "(@chunk_min, @chunk_max)"),
                     ("affinity [slot x task]", "@affinity_cognitive = "
                                                "@affinity_cog_slot x "
                                                "@affinity_cog_task"),
-                    ("(t,l)", "(@top, @left)"),
+                    ("task_id", "@task_id"),
                     ("index", "$index"),
+                    ("(t,l)", "(@top, @left)"),
                     ]
 
         # [Bokeh] inverted axis range example:
