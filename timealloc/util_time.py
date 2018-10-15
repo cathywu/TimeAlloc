@@ -11,7 +11,8 @@ LOOKAHEAD = 7  # planning horizon is 7 days
 DAY_START = 7  # first hour of the day is 7am
 SLOTS_PER_HOUR = 2  # each slot represents 30 minutes
 HOURS_PER_DAY = 14.5  # number of hours valid for scheduling
-SLOTS_PER_DAY = int(HOURS_PER_DAY * SLOTS_PER_HOUR)
+# includes a dummy end variable to mark the end of the day
+SLOTS_PER_DAY = int(HOURS_PER_DAY * SLOTS_PER_HOUR + 1)
 SLOTS_PER_WEEK = 7 * SLOTS_PER_DAY
 NUMSLOTS = LOOKAHEAD * SLOTS_PER_DAY
 WEEKDAYS = {

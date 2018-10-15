@@ -22,7 +22,7 @@ EPS = 1e-2  # epsilon
 TIMELIMIT = 500  # 3600, 1e3, 2e2, 50
 
 # granularity (in hours) for contiguity variables (larger --> easier problem)
-CONT_STRIDE = 12
+CONT_STRIDE = tutil.HOURS_PER_DAY
 
 # slack for contiguity variables (larger --> easier problem)
 SLACK = 5
@@ -163,7 +163,7 @@ class CalendarSolver:
         self.model.S_cat_total = Var(self.model.categories, domain=pe.Integers)
 
         # Contiguity slots (half-days)
-        self.cont_incr = CONT_STRIDE * tutil.SLOTS_PER_HOUR
+        self.cont_incr = int(CONT_STRIDE * tutil.SLOTS_PER_HOUR)
         self.cont_slots = self.num_timeslots / self.cont_incr - 1
         self.model.contslots = RangeSet(0, self.cont_slots - 1)
         self.model.CTu = Var(self.model.contslots * self.model.tasks,
@@ -573,6 +573,23 @@ class CalendarSolver:
 
         self.model.constrain_chunk_max = Constraint(self.model.tasks, rule=rule)
 
+    def _constraints_days_end(self):
+
+        def rule(model, p):
+            """
+            Disable allocation at resolutions smaller than permitted chunk_min
+            """
+            ind_j = model.tasks
+            day_end = (p+1) * tutil.SLOTS_PER_DAY - 1
+            total = sum(model.A[day_end, j] for j in ind_j)
+            total += sum(model.A2[day_end, j] for j in ind_j)
+            total += sum(model.A3[day_end, j] for j in ind_j)
+            total += sum(model.A4[day_end, j] for j in ind_j)
+            return None, total, 0
+
+        self.model.constrain_days_end = Constraint(self.model.dayslots,
+                                                   rule=rule)
+
     def _constraints_dependencies(self):
         """
         Before/after task dependencies
@@ -812,6 +829,7 @@ class CalendarSolver:
         self._constraints_nonoverlapping_tasks()
         self._constraints_task_valid()
         self._constraints_task_duration()
+        self._constraints_days_end()
         self._constraints_category_duration()
         self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
         self._constraints_task_spread()
@@ -1023,9 +1041,9 @@ class CalendarSolver:
 
         # [Bokeh] inverted axis range example:
         # https://groups.google.com/a/continuum.io/forum/#!topic/bokeh/CJAvppgQmKo
-        yr = Range1d(start=22, end=5.25)
+        yr = Range1d(start=22, end=6)
         # yr = Range1d(start=24.5, end=-0.5)
-        xr = Range1d(start=-0.5, end=7.5)
+        xr = Range1d(start=-0.3, end=7.3)
         p = figure(plot_width=800, plot_height=600, y_range=yr, x_range=xr,
                    tooltips=TOOLTIPS,
                    title="Calendar: {} to {}".format(start_str, end_str))
@@ -1093,12 +1111,10 @@ class CalendarSolver:
         # Annotate columns with day of the week
         source4 = ColumnDataSource(data=dict(
             x=[k + 0.1 for k in range(tutil.LOOKAHEAD)],
-            y=[5.95 for _ in range(tutil.LOOKAHEAD)],
+            y=[6.95 for _ in range(tutil.LOOKAHEAD)],
             weekday=[(c.START + timedelta(k)).strftime("%A") for k in
                      range(tutil.LOOKAHEAD)],
         ))
-
-        # Annotate rectangles with task name
         labels2 = LabelSet(x='x', y='y', text='weekday', level='glyph',
                            x_offset=3, y_offset=-1, source=source4,
                            text_font_size='10pt', render_mode='canvas')
