@@ -197,6 +197,11 @@ class CalendarSolver:
     def _objective_cost(self):
         """ Objective function to minimize """
 
+        def obj_expression_simple(model):
+            total = model.A_total + model.A2_total + model.A3_total + \
+                    model.A4_total
+            return -total
+
         def obj_expression(model):
             total = model.A_total + model.A2_total + model.A3_total + \
                     model.A4_total
@@ -207,6 +212,7 @@ class CalendarSolver:
 
         # self.model.exp_cost = Expression(rule=obj_expression)
         # self.model.obj_cost = Objective(rule=self.model.exp_cost)
+        # self.model.obj_cost = Objective(rule=obj_expression_simple)
         self.model.obj_cost = Objective(rule=obj_expression)
 
     def _constraints_variables(self):
@@ -803,10 +809,10 @@ class CalendarSolver:
         self._constraints_external()
         self._constraints_other()
         self._constraints_utility()
-        self._constraints_category_duration()
-        self._constraints_task_valid()
         self._constraints_nonoverlapping_tasks()
+        self._constraints_task_valid()
         self._constraints_task_duration()
+        self._constraints_category_duration()
         self._constraints_task_contiguity()  # FIXME(cathywu) some slowdown
         self._constraints_task_spread()
         self._constraints_category_days()
@@ -957,9 +963,11 @@ class CalendarSolver:
         end_weekday_str = c.END.strftime("%a")
 
         times, tasks = self.array.nonzero()
-        bottom = (times % (24 * tutil.SLOTS_PER_HOUR)) / tutil.SLOTS_PER_HOUR
+        day_start = tutil.DAY_START
+        hours = (times % tutil.SLOTS_PER_DAY) / tutil.SLOTS_PER_HOUR
+        bottom = day_start + hours
         top = bottom + (0.95 / tutil.SLOTS_PER_HOUR)
-        left = np.floor(times / (24 * tutil.SLOTS_PER_HOUR))
+        left = np.floor(times / tutil.SLOTS_PER_DAY)
         right = left + 0.95
         chunk_min = [self.task_chunk_min[j] for j in tasks]
         chunk_max = [self.task_chunk_max[j] for j in tasks]
@@ -1010,7 +1018,7 @@ class CalendarSolver:
                                                "@affinity_cog_task"),
                     ("task_id", "@task_id"),
                     ("index", "$index"),
-                    ("(t,l)", "(@top, @left)"),
+                    ("(t,l)", "(@bottom, @left)"),
                     ]
 
         # [Bokeh] inverted axis range example:

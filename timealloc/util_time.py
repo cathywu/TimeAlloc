@@ -7,9 +7,11 @@ import time
 import numpy as np
 
 # TODO(cathywu) move to config
-LOOKAHEAD = 7
+LOOKAHEAD = 7  # planning horizon is 7 days
+DAY_START = 7  # first hour of the day is 7am
 SLOTS_PER_HOUR = 2  # each slot represents 30 minutes
-SLOTS_PER_DAY = 24 * SLOTS_PER_HOUR
+HOURS_PER_DAY = 14.5  # number of hours valid for scheduling
+SLOTS_PER_DAY = int(HOURS_PER_DAY * SLOTS_PER_HOUR)
 SLOTS_PER_WEEK = 7 * SLOTS_PER_DAY
 NUMSLOTS = LOOKAHEAD * SLOTS_PER_DAY
 WEEKDAYS = {
@@ -41,9 +43,16 @@ def ip_slot_to_hour(slot):
 
 def text_to_datetime(str, weekno, year):
     """
-    Format found here: https://docs.python.org/2/library/time.html
-    :param str:
-    :return:
+    Week number and year are needed for the resulting datetime object to have
+    the correct day of the week. Otherwise, it will assume year 1990, and use
+    the corresponding day of the week. Week number is redundant when the
+    date is (optionally) provided.
+
+    :param str: String following one of the patterns below, minus the weekno
+    and year
+    :param weekno: Week number of the year (0-51)
+    :param year: Year (e.g. 2018)
+    :return: datetime object
     """
     patterns = [
         "%A %m/%d %I:%M%p %W %Y",  # Tuesday 9/7 1:30pm 36 2018
@@ -72,6 +81,7 @@ def text_to_datetime(str, weekno, year):
 def text_to_struct_time(str):
     """
     Format found here: https://docs.python.org/2/library/time.html
+
     :param str:
     :return:
     """
@@ -106,7 +116,7 @@ def struct_time_to_slot_mask(time, modifier="before", duration=None):
     day_starts = [SLOTS_PER_DAY*i for i in range(LOOKAHEAD)]
     day_starts.append(mask.size)  # for "after" termination edge case
 
-    offset = hour_to_ip_slot(time.tm_hour + time.tm_min/60)
+    offset = hour_to_ip_slot(time.tm_hour + time.tm_min/60 - DAY_START)
     if modifier == "before":
         for i in range(LOOKAHEAD):
             mask[day_starts[i]:day_starts[i]+offset] = 1
@@ -146,7 +156,7 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
         day = (time-start).days
         if day > LOOKAHEAD or day < 0:
             raise IOError("Cannot support event {} days ahead".format(day))
-    offset = hour_to_ip_slot(time.hour + time.minute / 60)
+    offset = hour_to_ip_slot(time.hour + time.minute / 60 - DAY_START)
     if modifier == "before":
         mask[:day_starts[day] + offset] = 1
     elif modifier == "after":
