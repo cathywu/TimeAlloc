@@ -8,7 +8,7 @@ from bokeh.models import ColumnDataSource, LabelSet, Range1d
 import pyomo.environ as pe
 from pyomo.environ import AbstractModel, RangeSet, Var, Objective, Constraint, \
     summation, Expression
-from pyomo.opt import SolverFactory
+from pyomo.opt import SolverFactory, ReaderFactory
 
 import timealloc.util as util
 import timealloc.util_time as tutil
@@ -833,6 +833,13 @@ class CalendarSolver:
         # self._results = self.opt.solve(self.instance, timelimit=2e2,
         # tee=True, keepfiles=True)
         self._optimized = True
+
+    def load(self, lp_fname, solution_fname):
+        # FIXME(cathywu) this is not working
+        reader = ReaderFactory("sol")
+        self.soln = reader(solution_fname)
+        # self.model.load(lp_fname)
+        self.model.solutions.load_from(self.soln)
 
     def _collect_results(self):
         array1 = np.reshape(
