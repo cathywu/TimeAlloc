@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import numpy as np
 
-from bokeh.palettes import d3
+from bokeh.palettes import d3, brewer
 from bokeh.plotting import figure, output_file, show
 from bokeh.models import ColumnDataSource, LabelSet, Range1d
 import pyomo.environ as pe
@@ -580,11 +580,17 @@ class CalendarSolver:
             Disable allocation at resolutions smaller than permitted chunk_min
             """
             ind_j = model.tasks
-            day_end = (p+1) * tutil.SLOTS_PER_DAY - 1
+            day_end = (p + 1) * tutil.SLOTS_PER_DAY - 1
             total = sum(model.A[day_end, j] for j in ind_j)
             total += sum(model.A2[day_end, j] for j in ind_j)
+            total += sum(model.A2[day_end - 1, j] for j in ind_j)
             total += sum(model.A3[day_end, j] for j in ind_j)
+            total += sum(model.A3[day_end - 1, j] for j in ind_j)
+            total += sum(model.A3[day_end - 2, j] for j in ind_j)
             total += sum(model.A4[day_end, j] for j in ind_j)
+            total += sum(model.A4[day_end - 1, j] for j in ind_j)
+            total += sum(model.A4[day_end - 2, j] for j in ind_j)
+            total += sum(model.A4[day_end - 3, j] for j in ind_j)
             return None, total, 0
 
         self.model.constrain_days_end = Constraint(self.model.dayslots,
@@ -967,10 +973,14 @@ class CalendarSolver:
         """
         Visualization of calendar tasks, with hover for more details
         """
+        NUM_AFFINITY = 4
+        NUM_WILL = 7
 
         # Colors for the tasks and categories
         COLORS = d3['Category20c'][20] + d3['Category20b'][20]
         COLORS_CAT = d3['Category20'][20]
+        COLORS_AFFINITY = brewer['Greens'][NUM_AFFINITY]
+        COLORS_WILL = brewer['RdBu'][NUM_WILL]
 
         # Date range for the figure title
         start_str = c.START.strftime("%A %m/%d/%y")
@@ -986,7 +996,7 @@ class CalendarSolver:
         bottom = day_start + hours
         top = bottom + (0.95 / tutil.SLOTS_PER_HOUR)
         left = np.floor(times / tutil.SLOTS_PER_DAY)
-        right = left + 0.95
+        right = left + 0.75
         chunk_min = [self.task_chunk_min[j] for j in tasks]
         chunk_max = [self.task_chunk_max[j] for j in tasks]
         affinity_cog_task = [self.task_cognitive_load[j] for j in tasks]
@@ -994,6 +1004,7 @@ class CalendarSolver:
         affinity_cognitive = (np.array(affinity_cog_task) * np.array(
             affinity_cog_slot)).tolist()
         willpower_task = [self.task_willpower_load[j] for j in tasks]
+        willpower_cumulative = np.cumsum(willpower_task)
         duration = [self.task_duration[j] for j in tasks]
         duration_realized = [self.task_duration_realized[j] for j in tasks]
         task_names = [self.task_names[j] for j in tasks]
@@ -1002,34 +1013,40 @@ class CalendarSolver:
         category = [", ".join(
             [self.cat_names[l] for l, j in enumerate(array) if j != 0]) for
                     array in [self.task_category[j, :] for j in tasks]]
-
-        offset = self.num_tasks - self.num_categories
-        # Use #deebf7 as placeholder/default event color
-        colors = [COLORS[i % len(COLORS)] if i < offset else '#ffffcc' for i in
-                  tasks]
-        source = ColumnDataSource(data=dict(
-            top=top,
-            bottom=bottom,
-            left=left,
-            right=right,
+        data_tooltips = dict(
             chunk_min=chunk_min,
             chunk_max=chunk_max,
             affinity_cognitive=affinity_cognitive,
             affinity_cog_slot=affinity_cog_slot,
             affinity_cog_task=affinity_cog_task,
             willpower_task=willpower_task,
+            willpower_cumulative=willpower_cumulative,
             duration=duration,
             duration_realized=duration_realized,
             task_id=tasks,
             task=task_names,
             category=category,
+        )
+
+        offset = self.num_tasks - self.num_categories
+        # Use #deebf7 as placeholder/default event color
+        colors = [COLORS[i % len(COLORS)] if i < offset else '#ffffcc' for i in
+                  tasks]
+        data1 = data_tooltips.copy()
+        data1.update(dict(
+            top=top,
+            bottom=bottom,
+            left=left,
+            right=right,
             colors=colors,
         ))
+        source1 = ColumnDataSource(data=data1)
 
         TOOLTIPS = [("task", "@task"),
                     ("category", "@category"),
                     ("duration", "@duration_realized / @duration"),
                     ("willpower", "@willpower_task"),
+                    ("willpower (cum)", "@willpower_cumulative"),
                     ("chunk_range", "(@chunk_min, @chunk_max)"),
                     ("affinity [slot x task]", "@affinity_cognitive = "
                                                "@affinity_cog_slot x "
@@ -1044,7 +1061,7 @@ class CalendarSolver:
         yr = Range1d(start=22, end=6)
         # yr = Range1d(start=24.5, end=-0.5)
         xr = Range1d(start=-0.3, end=7.3)
-        p = figure(plot_width=800, plot_height=600, y_range=yr, x_range=xr,
+        p = figure(plot_width=1000, plot_height=600, y_range=yr, x_range=xr,
                    tooltips=TOOLTIPS,
                    title="Calendar: {} to {}".format(start_str, end_str))
         self.p = p
@@ -1052,16 +1069,16 @@ class CalendarSolver:
 
         p.xaxis[0].axis_label = 'Weekday ({}-{})'.format(start_weekday_str,
                                                          end_weekday_str)
-        p.yaxis[0].axis_label = 'Hour (6:30AM-9:30PM)'
+        p.yaxis[0].axis_label = 'Hour (7AM-9:30PM)'
 
         # Replace default yaxis so that each hour is displayed
-        p.yaxis[0].ticker.desired_num_ticks = 24
+        p.yaxis[0].ticker.desired_num_ticks = int(tutil.HOURS_PER_DAY)
         p.yaxis[0].ticker.num_minor_ticks = 4
         p.xaxis[0].ticker.num_minor_ticks = 0
 
         # Display task allocation as colored rectangles
         p.quad(top='top', bottom='bottom', left='left', right='right',
-               color='colors', source=source)
+               color='colors', fill_alpha=0.7, line_alpha=0.5, source=source1)
 
         # Pre-process task names for display (no repeats, abbreviated names)
         # FIXME(cathywu) currently assumes that y is in time order, which may
@@ -1074,12 +1091,14 @@ class CalendarSolver:
             else:
                 curr_task = name
                 task_display.append(name)
-        source2 = ColumnDataSource(data=dict(
+        data2 = data_tooltips.copy()
+        data2.update(dict(
             x=left,
             y=top,
             # abbreviated version of task
-            task=[k[:17] for k in task_display],
+            task=[k[:19] for k in task_display],
         ))
+        source2 = ColumnDataSource(data=data2)
 
         # Annotate rectangles with task name
         # [Bokeh] Text properties:
@@ -1089,6 +1108,41 @@ class CalendarSolver:
                           render_mode='canvas')
         p.add_layout(labels)
 
+        # Display cognitive affinity as rectangle to the right of the task
+        colors_affinity = np.array(
+            np.array(affinity_cognitive) * (NUM_AFFINITY - 1), dtype=int)
+        colors_affinity = [COLORS_AFFINITY[NUM_AFFINITY - 1 - i] for i in
+                           colors_affinity.tolist()]
+        data5 = data_tooltips.copy()
+        data5.update(dict(
+            top=(np.array(top) - 0.05).tolist(),
+            bottom=(np.array(bottom) + 0.05).tolist(),
+            left=(np.array(right) + 0.12).tolist(),
+            right=(np.array(right) + 0.2).tolist(),
+            colors=colors_affinity,
+        ))
+        source5 = ColumnDataSource(data=data5)
+        p.quad(top='top', bottom='bottom', left='left', right='right',
+               color='colors', source=source5)
+
+        # Display willpower balance as rectangle to the right of the task
+        colors_will = np.minimum(willpower_cumulative, 2)
+        colors_will = np.maximum(colors_will, -2)
+        colors_will += 2
+        colors_will = np.array(colors_will / 4 * (NUM_WILL - 1), dtype=int)
+        colors_will = [COLORS_WILL[i] for i in colors_will.tolist()]
+        data6 = data_tooltips.copy()
+        data6.update(dict(
+            top=top,
+            bottom=bottom,
+            left=np.array(right) + 0.02,
+            right=(np.array(right) + 0.1).tolist(),
+            colors=colors_will,
+        ))
+        source6 = ColumnDataSource(data=data6)
+        p.quad(top='top', bottom='bottom', left='left', right='right',
+               color='colors', source=source6)
+
         # Display categories as a colored line on the left
         # TODO(cathywu) currently displays only the "first" category,
         # add support for more categories
@@ -1097,24 +1151,27 @@ class CalendarSolver:
         for y0, y1, x in zip(top, bottom, left):
             xs.append([x, x])
             ys.append([y0, y1])
-
         colors_cat = [COLORS_CAT[cat_ids[0] % len(COLORS_CAT)] for cat_ids in
                       category_ids]
-        source3 = ColumnDataSource(data=dict(
+        data3 = data_tooltips.copy()
+        data3.update(dict(
             xs=xs,
             ys=ys,
             colors=colors_cat,
         ))
+        source3 = ColumnDataSource(data=data3)
         p.multi_line(xs='xs', ys='ys', color='colors', line_width=4,
                      source=source3)
 
         # Annotate columns with day of the week
-        source4 = ColumnDataSource(data=dict(
+        data4 = data_tooltips.copy()
+        data4.update(dict(
             x=[k + 0.1 for k in range(tutil.LOOKAHEAD)],
-            y=[6.95 for _ in range(tutil.LOOKAHEAD)],
+            y=[6.75 for _ in range(tutil.LOOKAHEAD)],
             weekday=[(c.START + timedelta(k)).strftime("%A") for k in
                      range(tutil.LOOKAHEAD)],
         ))
+        source4 = ColumnDataSource(data=data4)
         labels2 = LabelSet(x='x', y='y', text='weekday', level='glyph',
                            x_offset=3, y_offset=-1, source=source4,
                            text_font_size='10pt', render_mode='canvas')
