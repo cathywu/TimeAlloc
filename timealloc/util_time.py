@@ -130,7 +130,8 @@ def struct_time_to_slot_mask(time, modifier="before", duration=None):
         if duration is None:
             raise (ValueError, "Duration not provided")
         for i in range(LOOKAHEAD):
-            mask[day_starts[i]+offset:day_starts[i]+offset+duration] = 1
+            start = day_starts[i] + offset
+            mask[start:start + duration] = 1
     else:
         raise ValueError("Modifier {} not supported".format(modifier))
     return mask
@@ -180,7 +181,8 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
     elif modifier == "at":
         if duration is None:
             raise IOError("Duration not provided")
-        mask[day_starts[day] + offset:day_starts[day] + offset + duration] = 1
+        start = day_starts[day] + offset
+        mask[start:start + duration] = 1
     else:
         raise (
             NotImplementedError, "Modifier {} not supported".format(modifier))

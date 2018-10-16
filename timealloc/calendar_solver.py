@@ -1096,7 +1096,7 @@ class CalendarSolver:
             x=left,
             y=top,
             # abbreviated version of task
-            task=[k[:19] for k in task_display],
+            task=[k[:18] for k in task_display],
         ))
         source2 = ColumnDataSource(data=data2)
 
