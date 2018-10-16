@@ -60,6 +60,8 @@ def text_to_datetime(str, weekno, year):
         "%a %m/%d %I:%M%p %W %Y",  # Tues 9/7 1:30pm 36 2018
         "%A %m/%d %I%p %W %Y",     # Tuesday 9/7 1pm 36 2018
         "%a %m/%d %I%p %W %Y",     # Tues 9/7 1pm 36 2018
+        "%A %I:%M%p %W %Y",        # Tuesday 1:30pm 36 2018
+        "%a %I:%M%p %W %Y",        # Tues 1:30pm 36 2018
         "%A %I%p %W %Y",           # Tuesday 1pm 36 2018
         "%a %I%p %W %Y",           # Tues 1pm 36 2018
         "%A %m/%d %W %Y",          # Tuesday 9/7 36 2018
