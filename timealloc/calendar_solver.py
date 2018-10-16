@@ -89,6 +89,13 @@ class CalendarSolver:
         self.model.timeslots3 = RangeSet(0, self.num_timeslots - 3)  # for A3
         self.model.timeslots4 = RangeSet(0, self.num_timeslots - 4)  # for A4
         self.model.dtimeslots = RangeSet(0, self.num_timeslots - 2)
+        # timeslots for first day
+        self.model.timeslots_1day = RangeSet(0, self.num_timeslots / 7 - 1)
+        # timeslots for first 3 days
+        self.model.timeslots_3days = RangeSet(0, self.num_timeslots / 7 * 3 - 1)
+        # timeslots for last 4 days
+        self.model.timeslots_4days = RangeSet(self.num_timeslots / 7 * 3,
+                                              self.num_timeslots - 1)
 
         # Fill pyomo Params from user params
         self.utilities = utilities
@@ -810,7 +817,7 @@ class CalendarSolver:
 
             slot * task assigned * duration * willpower scaling
             """
-            ind_i = model.timeslots
+            ind_i = model.timeslots_4days
             ind_j = model.tasks
             total = sum(self.task_willpower_load[j] * (
                 model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
@@ -818,6 +825,38 @@ class CalendarSolver:
             return None, total, 0
 
         self.model.constrain_willpower0 = Constraint(rule=rule)
+
+        def rule(model):
+            """
+            Avoid willpower depletion.
+            Impose that the willpower expended over the week is non-positive.
+
+            slot * task assigned * duration * willpower scaling
+            """
+            ind_i = model.timeslots_3days
+            ind_j = model.tasks
+            total = sum(self.task_willpower_load[j] * (
+                model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
+                model.A4[i, j]) for i in ind_i for j in ind_j)
+            return None, total, 0
+
+        self.model.constrain_willpower1 = Constraint(rule=rule)
+
+        def rule(model):
+            """
+            Avoid willpower depletion.
+            Impose that the willpower expended over the week is non-positive.
+
+            slot * task assigned * duration * willpower scaling
+            """
+            ind_i = model.timeslots_1day
+            ind_j = model.tasks
+            total = sum(self.task_willpower_load[j] * (
+                model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
+                model.A4[i, j]) for i in ind_i for j in ind_j)
+            return None, total, 0
+
+        self.model.constrain_willpower2 = Constraint(rule=rule)
 
     def _construct_ip(self):
         """
