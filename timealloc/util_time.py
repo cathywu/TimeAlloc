@@ -157,21 +157,28 @@ def datetime_to_slot_mask(time, modifier="before", start=None, duration=None):
         day = (time-start).days
         if day > LOOKAHEAD or day < 0:
             raise IOError("Cannot support event {} days ahead".format(day))
-    offset = hour_to_ip_slot(time.hour + time.minute / 60 - DAY_START)
+
+    if time.hour != 0 or time.minute != 0:
+        # if a time is provided, then shift it by DAY_START
+        offset = hour_to_ip_slot(time.hour + time.minute / 60 - DAY_START)
+    else:
+        # otherwise offset should be 0
+        offset = hour_to_ip_slot(time.hour + time.minute / 60)
+
+    # FIXME(cathywu) this is a hack
+    if day == 7:
+        day = 0
+
     if modifier == "before":
         mask[:day_starts[day] + offset] = 1
     elif modifier == "after":
         mask[day_starts[day] + offset:] = 1
     elif modifier == "on":
-        if day == 7:
-            # FIXME(cathywu) this is a hack
-            day = 0
         mask[day_starts[day] + offset:day_starts[day + 1]] = 1
     elif modifier == "at":
         if duration is None:
             raise IOError("Duration not provided")
-        mask[day_starts[day] + offset:day_starts[
-                                              day] + offset + duration] = 1
+        mask[day_starts[day] + offset:day_starts[day] + offset + duration] = 1
     else:
         raise (
             NotImplementedError, "Modifier {} not supported".format(modifier))
