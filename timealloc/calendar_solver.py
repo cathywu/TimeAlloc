@@ -328,6 +328,8 @@ class CalendarSolver:
                          ind_i for j in ind_j)
             total += sum(model.A3[i, j] * (1 - self.valid[i, j]) for i in
                          ind_i for j in ind_j)
+            total += sum(model.A4[i, j] * (1 - self.valid[i, j]) for i in
+                         ind_i for j in ind_j)
 
             return None, total, 0
 

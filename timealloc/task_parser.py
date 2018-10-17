@@ -39,6 +39,7 @@ class TaskParser:
             tasks_soup, heading="Work: Important and urgent", category="Work")
         work_tasks0 = self._tag_important(work_tasks0)
         work_tasks0 = self._tag_urgent(work_tasks0)
+        work_tasks0 = self._tag_soon(work_tasks0)
 
         # important and not urgent tasks
         work_tasks1, work_tasks_total1 = self._tasks_from_soup(
@@ -51,6 +52,7 @@ class TaskParser:
             tasks_soup, heading="Work: Not important and urgent",
             category="Work")
         work_tasks2 = self._tag_urgent(work_tasks2)
+        work_tasks2 = self._tag_soon(work_tasks2)
 
         # not important and not urgent tasks
         work_tasks3, work_tasks_total3 = self._tasks_from_soup(
@@ -210,6 +212,12 @@ class TaskParser:
     def _tag_urgent(tasks):
         for key in tasks.keys():
             tasks[key]["urgent"] = True
+        return tasks
+
+    @staticmethod
+    def _tag_soon(tasks):
+        for key in tasks.keys():
+            tasks[key]["soon"] = True
         return tasks
 
     @staticmethod
