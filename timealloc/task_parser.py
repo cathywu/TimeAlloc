@@ -29,7 +29,13 @@ class TaskParser:
 
         self.time_allocation_fname = time_alloc_fname
         t_alloc_soup = util.html_from_md(self.time_allocation_fname)
-        self._time_alloc_from_soup(t_alloc_soup)
+        talloc_serious, serious_total = self._time_alloc_from_soup(t_alloc_soup,
+            heading="Serious categories")
+        talloc_restful, serious_restful = self._time_alloc_from_soup(
+            t_alloc_soup, heading="Restful categories")
+        talloc_restful = self._tag(talloc_restful, label="restful")
+        # merge categories into a single set of work tasks
+        self.time_alloc = self._merge_tasks((talloc_serious, talloc_restful))
 
         self.tasks_fname = tasks_fname
         tasks_soup = util.html_from_md(self.tasks_fname)
@@ -93,18 +99,26 @@ class TaskParser:
         self.errand_tasks_total = errand_tasks_total0 + errand_tasks_total1 + \
                                 errand_tasks_total2 + errand_tasks_total3
 
+        scheduled_tasks, scheduled_tasks_total = self._tasks_from_soup(
+            tasks_soup, heading="Scheduled tasks")
+        scheduled_tasks = self._tag(scheduled_tasks, "important")
+        scheduled_tasks = self._tag(scheduled_tasks, "urgent")
         other_tasks, other_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Other tasks")
         persistent_tasks, persistent_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Persistent tasks")
         # merge tasks into a single set of other tasks
         self.other_tasks = self._merge_tasks((other_tasks, self.errand_tasks,
-                                             persistent_tasks))
+                                             persistent_tasks, scheduled_tasks))
 
-    def _time_alloc_from_soup(self, soup):
-        # TODO(cathywu) change this to find the "Time Alloc" heading and then
-        # look at its next list
-        for top in soup.find_all("ul")[0].children:
+    def _time_alloc_from_soup(self, soup, heading="Serious categories"):
+        headings = soup.find_all("h2")
+        time_alloc = {}
+        running_total = 0
+
+        h2 = [h2.next for h2 in soup.find_all("h2")].index(heading)
+        cat_ul = headings[h2].next.next.next
+        for top in cat_ul.children:
             if not isinstance(top, NavigableString):
                 # print('Tag:', top.next)
                 tag = top.next
@@ -119,17 +133,17 @@ class TaskParser:
                         category = m.group(1)
                         total = m.group(2).split(', ')
 
-                        if category not in self.time_alloc:
-                            self.time_alloc[category] = {}
-                        self.time_alloc[category]['tag'] = tag
+                        if category not in time_alloc:
+                            time_alloc[category] = {}
+                        time_alloc[category]['tag'] = tag
 
-                        self.time_alloc[category]['total'] = float(total[0])
-                        self.time_alloc[category]['min'] = float(total[0])
+                        time_alloc[category]['total'] = float(total[0])
+                        time_alloc[category]['min'] = float(total[0])
                         if len(total) > 1:
-                            self.time_alloc[category]['max'] = float(total[1])
+                            time_alloc[category]['max'] = float(total[1])
 
                         self.tags[tag]['total'] += float(total[0])
-                        self.running_total += float(total[0])
+                        running_total += float(total[0])
                     if isinstance(level2.next.next, NavigableString):
                         # print('Extra:', level2.next.next)
                         continue
@@ -140,11 +154,11 @@ class TaskParser:
                             label = label.lower()
                             metadatum = metadata.split("; ")
                             if label == "when":
-                                if label not in self.time_alloc[category]:
-                                    self.time_alloc[category][label] = []
-                                self.time_alloc[category][label].append(metadata)
+                                if label not in time_alloc[category]:
+                                    time_alloc[category][label] = []
+                                time_alloc[category][label].append(metadata)
                             else:
-                                self.time_alloc[category][label] = metadata
+                                time_alloc[category][label] = metadata
 
                         if isinstance(level3.next.next, NavigableString):
                             # print('Extra:', level2.next.next)
@@ -154,9 +168,11 @@ class TaskParser:
 
         # print(json.dumps(self.time_alloc, indent=4))
         # print(json.dumps(self.tags, indent=4))
-        if self.running_total != TIME_AVAILABLE:
+        if running_total != TIME_AVAILABLE:
             print("WARNING: time allocation is off ({} != {} hours)".format(
-                self.running_total, TIME_AVAILABLE))
+                running_total, TIME_AVAILABLE))
+
+        return time_alloc, running_total
 
     def _tasks_from_soup(self, soup, category=None, heading="Work tasks"):
         headings = soup.find_all("h2")
@@ -223,6 +239,13 @@ class TaskParser:
                     self.time_alloc[category]['total']))
 
         return tasks_dict, running_total
+
+    @staticmethod
+    def _tag(tasks, label):
+        for key in tasks.keys():
+            if label not in tasks[key]:
+                tasks[key][label] = True
+        return tasks
 
     @staticmethod
     def _tag_important(tasks):

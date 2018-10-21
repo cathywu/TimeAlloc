@@ -202,6 +202,11 @@ class Tasks:
                         self.overall_mask[:, offset + i] = np.array(
                             np.logical_and(self.overall_mask[:, offset + i],
                                            category_mask), dtype=int)
+                        # If any of the categories are not restful, then the
+                        # overall task not not restful
+                        if "restful" not in self.tasks.time_alloc[cat]:
+                            self.task_restful[offset + i] = 0
+                        # Willpower is assumed to be additive across categories
                         willpower += self.cat_willpower_load[cat_id]
                     # Don't overwrite task-specific (non-zero) willpower
                     if self.willpower_load[offset + i] == 0:
@@ -286,6 +291,10 @@ class Tasks:
                         self.overall_mask[:, offset + i] = np.array(
                             np.logical_and(self.overall_mask[:, offset + i],
                                            category_mask), dtype=int)
+                        # If any of the categories are not restful, then the
+                        # overall task not not restful
+                        if "restful" not in self.tasks.time_alloc[cat]:
+                            self.task_restful[offset + i] = 0
                         # Willpower is assumed to be additive across categories
                         willpower += self.cat_willpower_load[cat_id]
                     # Don't overwrite task-specific (non-zero) willpower
@@ -378,6 +387,7 @@ class Tasks:
             'task_completion_bonus': self.completion_bonus,
             'task_cognitive_load': self.cognitive_load,
             'task_willpower_load': self.willpower_load,
+            'task_restful': self.task_restful,
             'task_before': self.before,
             'task_after': self.after,
         }

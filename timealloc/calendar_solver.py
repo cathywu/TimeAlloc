@@ -61,6 +61,7 @@ class CalendarSolver:
         self.task_completion_bonus = params['task_completion_bonus']
         self.task_cognitive_load = params['task_cognitive_load']
         self.task_willpower_load = params['task_willpower_load']
+        self.task_restful = params['task_restful']
         self.task_before = params['task_before']
         self.task_after = params['task_after']
 
@@ -97,6 +98,8 @@ class CalendarSolver:
         # timeslots for last 4 days
         self.model.timeslots_4days = RangeSet(self.num_timeslots / 7 * 3,
                                               self.num_timeslots - 1)
+        self.model.timeslots_3hrs = RangeSet(0, self.num_timeslots / (
+        3 * tutil.SLOTS_PER_HOUR) - 1)
 
         # Fill pyomo Params from user params
         self.utilities = utilities
@@ -884,6 +887,50 @@ class CalendarSolver:
 
         self.model.constrain_willpower2 = Constraint(rule=rule)
 
+    def _constraints_restful(self):
+        """
+        Every 3 hours, there should be at least 1 restful category task.
+        """
+
+        diag = util.blockdiag(self.num_timeslots, incr=3 * tutil.SLOTS_PER_HOUR)
+
+        def rule(model, p):
+            """
+            For any days that require a category, make sure it meets a
+            minimum, if provided.
+
+            Note: a min cannot be set if total_days for the category is less
+            than all the category days.
+            """
+            r = self.task_restful
+            A = model.A
+            A2 = model.A2
+            A3 = model.A3
+            A4 = model.A4
+            ind_i = model.timeslots
+            ind_i2 = model.timeslots2
+            ind_i3 = model.timeslots3
+            ind_i4 = model.timeslots4
+            ind_j = model.tasks
+
+            total = sum(
+                diag[p, i] * r[j] * (A[i, j] + A2[i, j] + A3[i, j] + A4[i, j])
+                for j in ind_j for i in ind_i)
+            if p > 0:
+                total += sum(
+                    diag[p, i + 1] * r[j] * (A2[i, j] + A3[i, j] + A4[i, j]) for
+                    j in ind_j for i in ind_i2)
+                total += sum(
+                    diag[p, i + 2] * r[j] * (A3[i, j] + A4[i, j]) for j in ind_j
+                    for i in ind_i3)
+                total += sum(
+                    diag[p, i + 3] * r[j] * (A4[i, j]) for j in ind_j for i in
+                    ind_i4)
+            return 1, total, None
+
+        self.model.constrain_cat_restful1 = Constraint(
+            self.model.timeslots_3hrs, rule=rule)
+
     def _construct_ip(self):
         """
         Aggregates MIP construction
@@ -908,6 +955,7 @@ class CalendarSolver:
         self._constraints_task_chunks()  # imposes chunk bounds
         self._constraints_category_daily_limits()
         self._constraints_willpower()
+        self._constraints_restful()
 
         # FIXME this might be horrendously slow
         # self._constraints_dependencies()  # de-prioritized
