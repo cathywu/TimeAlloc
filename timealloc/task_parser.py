@@ -35,29 +35,26 @@ class TaskParser:
         tasks_soup = util.html_from_md(self.tasks_fname)
 
         # important and urgent tasks
-        work_tasks0, work_tasks_total0 = self._tasks_from_soup(
-            tasks_soup, heading="Work: Important and urgent", category="Work")
+        work_tasks0, work_tasks_total0 = self._tasks_from_soup(tasks_soup,
+            heading="Work: Important and urgent", category="Work")
         work_tasks0 = self._tag_important(work_tasks0)
         work_tasks0 = self._tag_urgent(work_tasks0)
         work_tasks0 = self._tag_soon(work_tasks0)
 
         # important and not urgent tasks
-        work_tasks1, work_tasks_total1 = self._tasks_from_soup(
-            tasks_soup, heading="Work: Important and not urgent",
-            category="Work")
+        work_tasks1, work_tasks_total1 = self._tasks_from_soup(tasks_soup,
+            heading="Work: Important and not urgent", category="Work")
         work_tasks1 = self._tag_important(work_tasks1)
 
         # not important and urgent tasks
-        work_tasks2, work_tasks_total2 = self._tasks_from_soup(
-            tasks_soup, heading="Work: Not important and urgent",
-            category="Work")
+        work_tasks2, work_tasks_total2 = self._tasks_from_soup(tasks_soup,
+            heading="Work: Not important and urgent", category="Work")
         work_tasks2 = self._tag_urgent(work_tasks2)
         work_tasks2 = self._tag_soon(work_tasks2)
 
         # not important and not urgent tasks
-        work_tasks3, work_tasks_total3 = self._tasks_from_soup(
-            tasks_soup, heading="Work: other",
-            category="Work")
+        work_tasks3, work_tasks_total3 = self._tasks_from_soup(tasks_soup,
+            heading="Work: other", category="Work")
 
         # merge tasks into a single set of work tasks
         self.work_tasks = self._merge_tasks((work_tasks0, work_tasks1,
@@ -66,17 +63,42 @@ class TaskParser:
         self.work_tasks_total = work_tasks_total0 + work_tasks_total1 + \
                                 work_tasks_total2 + work_tasks_total3
 
-        # load any unlabeled work tasks?
         # load non-work tasks
+        # load errand tasks
+        errand_tasks0, errand_tasks_total0 = self._tasks_from_soup(tasks_soup,
+            heading="Errand: Important and urgent", category="Errand")
+        errand_tasks0 = self._tag_important(errand_tasks0)
+        errand_tasks0 = self._tag_urgent(errand_tasks0)
+        errand_tasks0 = self._tag_soon(errand_tasks0)
+
+        # important and not urgent tasks
+        errand_tasks1, errand_tasks_total1 = self._tasks_from_soup(tasks_soup,
+            heading="Errand: Important and not urgent", category="Errand")
+        errand_tasks1 = self._tag_important(errand_tasks1)
+
+        # not important and urgent tasks
+        errand_tasks2, errand_tasks_total2 = self._tasks_from_soup(tasks_soup,
+            heading="Errand: Not important and urgent", category="Errand")
+        errand_tasks2 = self._tag_urgent(errand_tasks2)
+        errand_tasks2 = self._tag_soon(errand_tasks2)
+
+        # not important and not urgent tasks
+        errand_tasks3, errand_tasks_total3 = self._tasks_from_soup(tasks_soup,
+            heading="Errand: other", category="Errand")
+
+        # merge tasks into a single set of errand tasks
+        self.errand_tasks = self._merge_tasks(
+            (errand_tasks0, errand_tasks1, errand_tasks2, errand_tasks3))
+        self.errand_tasks = self._add_category(self.errand_tasks, "Errand")
+        self.errand_tasks_total = errand_tasks_total0 + errand_tasks_total1 + \
+                                errand_tasks_total2 + errand_tasks_total3
+
         other_tasks, other_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Other tasks")
-        errand_tasks, errand_tasks_total = self._tasks_from_soup(
-            tasks_soup, heading="Errand tasks", category="Errand")
-        errand_tasks = self._add_category(errand_tasks, "Errand")
         persistent_tasks, persistent_tasks_total = self._tasks_from_soup(
             tasks_soup, heading="Persistent tasks")
         # merge tasks into a single set of other tasks
-        self.other_tasks = self._merge_tasks((other_tasks, errand_tasks,
+        self.other_tasks = self._merge_tasks((other_tasks, self.errand_tasks,
                                              persistent_tasks))
 
     def _time_alloc_from_soup(self, soup):
