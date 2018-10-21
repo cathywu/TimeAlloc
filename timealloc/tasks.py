@@ -168,7 +168,7 @@ class Tasks:
 
     def _read_other_task_attributes(self):
         """
-        OTHER TASKS
+        Non-work tasks
         """
         offset = self.num_work_tasks
         for i, task in enumerate(self.other_task_names):
@@ -243,7 +243,7 @@ class Tasks:
 
     def _read_work_task_attributes(self):
         """
-        WORK TASKS
+        Work tasks
         """
         work_category = self.category_names.index("Work")
         work_mask = self.category_masks[:, work_category]
