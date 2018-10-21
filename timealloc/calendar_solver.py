@@ -53,6 +53,7 @@ class CalendarSolver:
         self.category_days = params['category_days']
         self.category_days_total = params['category_total']
         self.category_daily_caps = params['category_daily_caps']
+        self.category_daily_min = params['category_daily_min']
         self.valid = params['task_valid']
         self.task_duration = params['task_duration']
         self.task_chunk_min = params['task_chunk_min']
@@ -788,7 +789,7 @@ class CalendarSolver:
 
         self.model.constrain_contiguity_lt = Constraint(rule=rule)
 
-    def _constraints_category_daily_caps(self):
+    def _constraints_category_daily_limits(self):
 
         diag = util.blockdiag(self.num_timeslots, incr=tutil.SLOTS_PER_DAY)
 
@@ -807,6 +808,29 @@ class CalendarSolver:
             return None, total, self.category_daily_caps[k]
 
         self.model.constrain_cat_daily0 = Constraint(self.model.dayslots,
+                                                     self.model.categories,
+                                                     rule=rule)
+
+        def rule(model, p, k):
+            """
+            For any days that require a category, make sure it meets a
+            minimum, if provided.
+
+            Note: a min cannot be set if total_days for the category is less
+            than all the category days.
+            """
+            if self.category_days[p, k] == 0:
+                return Constraint.Feasible
+            if self.category_daily_min[k] < 0:
+                return Constraint.Feasible
+            ind_i = model.timeslots
+            ind_j = model.tasks
+            total = sum(diag[p, i] * self.task_category[j, k] * (
+                model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
+                model.A4[i, j]) for i in ind_i for j in ind_j)
+            return self.category_daily_min[k], total, None
+
+        self.model.constrain_cat_daily1 = Constraint(self.model.dayslots,
                                                      self.model.categories,
                                                      rule=rule)
 
@@ -882,7 +906,7 @@ class CalendarSolver:
         self._constraints_task_spread()
         self._constraints_category_days()
         self._constraints_task_chunks()  # imposes chunk bounds
-        self._constraints_category_daily_caps()
+        self._constraints_category_daily_limits()
         self._constraints_willpower()
 
         # FIXME this might be horrendously slow
