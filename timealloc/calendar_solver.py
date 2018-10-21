@@ -98,8 +98,6 @@ class CalendarSolver:
         # timeslots for last 4 days
         self.model.timeslots_4days = RangeSet(self.num_timeslots / 7 * 3,
                                               self.num_timeslots - 1)
-        self.model.timeslots_3hrs = RangeSet(0, self.num_timeslots / (
-        3 * tutil.SLOTS_PER_HOUR) - 1)
 
         # Fill pyomo Params from user params
         self.utilities = utilities
@@ -889,10 +887,16 @@ class CalendarSolver:
 
     def _constraints_restful(self):
         """
-        Every 3 hours, there should be at least 1 restful category task.
+        Every 3 hours (w/ 1.5 hr steps), there should be at least 1 restful
+        category task.
+
+        # TODO(cathywu) put the 3 hours into a config file
         """
 
-        diag = util.blockdiag(self.num_timeslots, incr=3 * tutil.SLOTS_PER_HOUR)
+        diag = util.blockdiag(self.num_timeslots, incr=3 * tutil.SLOTS_PER_HOUR,
+                              step=3)
+        # timeslots for restful constraint
+        self.model.timeslots_restful = RangeSet(0, diag.shape[0] - 1)
 
         def rule(model, p):
             """
@@ -929,7 +933,7 @@ class CalendarSolver:
             return 1, total, None
 
         self.model.constrain_cat_restful1 = Constraint(
-            self.model.timeslots_3hrs, rule=rule)
+            self.model.timeslots_restful, rule=rule)
 
     def _construct_ip(self):
         """

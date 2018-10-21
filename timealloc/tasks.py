@@ -120,6 +120,9 @@ class Tasks:
             # categories for default tasks
             self.task_category[offset + k, k] = 1
 
+            if 'restful' not in self.tasks.time_alloc[cat]:
+                self.task_restful[offset + k] = 0
+
             for key in self.tasks.time_alloc[cat]:
                 if key == "when":
                     for clause in self.tasks.time_alloc[cat][key]:

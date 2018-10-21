@@ -70,11 +70,15 @@ def linop_from_1d_filter(filter, n, offset=0, offset_end=None):
     return L, bias
 
 
-def blockdiag(m, incr=1):
-    n = int(m / incr)
+def blockdiag(m, incr=1, step=None):
+    if step is not None:
+        n = int(m / step)
+    else:
+        step = incr
+        n = int(m / incr)
     L = np.zeros((n, m))
     for i in range(n):
-        L[i, i * incr:(i + 1) * incr] = 1
+        L[i, i * step:i * step + incr] = 1
     return L
 
 
