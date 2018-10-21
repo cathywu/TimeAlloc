@@ -227,19 +227,22 @@ class TaskParser:
     @staticmethod
     def _tag_important(tasks):
         for key in tasks.keys():
-            tasks[key]["important"] = True
+            if "important" not in tasks[key]:
+                tasks[key]["important"] = True
         return tasks
 
     @staticmethod
     def _tag_urgent(tasks):
         for key in tasks.keys():
-            tasks[key]["urgent"] = True
+            if "urgent" not in tasks[key]:
+                tasks[key]["urgent"] = True
         return tasks
 
     @staticmethod
     def _tag_soon(tasks):
         for key in tasks.keys():
-            tasks[key]["soon"] = True
+            if "soon" not in tasks[key]:
+                tasks[key]["soon"] = True
         return tasks
 
     @staticmethod
