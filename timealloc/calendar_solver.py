@@ -1024,8 +1024,9 @@ class CalendarSolver:
         self.day_willpower = np.zeros(tutil.LOOKAHEAD)
 
         self.affinity = np.outer(c.AFFINITY_COGNITIVE, self.task_cognitive_load)
-        affinity_realized = self.affinity * self.array  # num_slots x num_tasks
-        self.day_cognitive = diag.dot(affinity_realized).sum(axis=1)
+        # num_slots x num_tasks
+        self.affinity_realized = self.affinity * self.array
+        self.day_cognitive = diag.dot(self.affinity_realized).sum(axis=1)
 
         for p in range(tutil.LOOKAHEAD):
             for j in range(self.num_tasks):
