@@ -9,7 +9,7 @@ from timealloc.calendar_solver import CalendarSolver
 # User specified input files
 # time_allocation_fname = "scratch/time-allocation-2018-09-28-simple.md"
 time_allocation_fname = "scratch/time-allocation-2018-10-21b.md"
-tasks_fname = "scratch/tasks-2018-10-20.md"
+tasks_fname = "scratch/tasks-2018-10-25.md"
 
 tasks = Tasks(time_allocation_fname, tasks_fname)
 

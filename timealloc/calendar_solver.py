@@ -849,6 +849,7 @@ class CalendarSolver:
             total = sum(self.task_willpower_load[j] * (
                 model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
                 model.A4[i, j]) for i in ind_i for j in ind_j)
+            total += c.WILLPOWER_INIT
             return None, total, 0
 
         self.model.constrain_willpower0 = Constraint(rule=rule)
@@ -865,6 +866,7 @@ class CalendarSolver:
             total = sum(self.task_willpower_load[j] * (
                 model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
                 model.A4[i, j]) for i in ind_i for j in ind_j)
+            total += c.WILLPOWER_INIT
             return None, total, 0
 
         self.model.constrain_willpower1 = Constraint(rule=rule)
@@ -881,6 +883,7 @@ class CalendarSolver:
             total = sum(self.task_willpower_load[j] * (
                 model.A[i, j] + 2 * model.A2[i, j] + 3 * model.A3[i, j] + 4 *
                 model.A4[i, j]) for i in ind_i for j in ind_j)
+            total += c.WILLPOWER_INIT
             return None, total, 0
 
         self.model.constrain_willpower2 = Constraint(rule=rule)
@@ -1022,6 +1025,7 @@ class CalendarSolver:
         # Willpower balance and cognitive affinity per day
         diag = util.blockdiag(self.num_timeslots, incr=tutil.SLOTS_PER_DAY)
         self.day_willpower = np.zeros(tutil.LOOKAHEAD)
+        self.day_willpower += c.WILLPOWER_INIT
 
         self.affinity = np.outer(c.AFFINITY_COGNITIVE, self.task_cognitive_load)
         # num_slots x num_tasks
@@ -1123,6 +1127,7 @@ class CalendarSolver:
             affinity_cog_slot)).tolist()
         willpower_task = [self.task_willpower_load[j] for j in tasks]
         willpower_cumulative = np.cumsum(willpower_task)
+        willpower_cumulative += c.WILLPOWER_INIT
         duration = [self.task_duration[j] for j in tasks]
         duration_realized = [self.task_duration_realized[j] for j in tasks]
         task_names = [self.task_names[j] for j in tasks]
